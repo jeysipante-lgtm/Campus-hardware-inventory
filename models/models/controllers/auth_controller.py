@@ -1,0 +1,50 @@
+import sqlite3
+import bcrypt
+from logger import logger
+from models.schemas import UserRegisterSchema
+from pydantic import ValidationError
+
+class AuthController:
+    def __init__(self, db_name="lab_tracker.db"):
+        self.db_name = db_name
+
+    def register_user(self, username, password):
+        try:
+            validated = UserRegisterSchema(username=username, password=password)
+        except ValidationError as e:
+            return False, f"Validation Error: {e.errors()[0]['msg']}"
+
+        hashed_pw = bcrypt.hashpw(validated.password.encode('utf-8'), bcrypt.gensalt())
+
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                    (validated.username, hashed_pw.decode('utf-8'))
+                )
+            logger.info(f"Account created: '{validated.username}'")
+            return True, "Registration successful! You may now log in."
+        except sqlite3.IntegrityError:
+            return False, "Username already taken."
+        except sqlite3.Error as e:
+            logger.error(f"Database error during registration: {e}")
+            return False, "An error occurred while creating the account."
+
+    def login_user(self, username, password):
+        if not username or not password:
+            return False, "Please enter both username and password."
+
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+                row = cursor.fetchone()
+
+            if row and bcrypt.checkpw(password.encode('utf-8'), row[0].encode('utf-8')):
+                logger.info(f"User '{username}' logged in.")
+                return True, "Login successful!"
+        except sqlite3.Error as e:
+            logger.error(f"Database error during login: {e}")
+
+        return False, "Invalid username or password."

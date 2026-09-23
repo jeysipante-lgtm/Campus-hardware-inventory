@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Campus Hardware Inventory{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header class="app-header">
+        <h1>Engineering Lab Asset Tracking</h1>
+        <div class="user-info">
+            <span>Welcome, <strong>{{ username }}</strong> ({{ role }})</span>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </header>
+
+    <nav class="app-nav">
+        <a href="/" class="nav-link">Inventory</a>
+        <a href="/asset-tracking" class="nav-link">Asset Tracking / Requests</a>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

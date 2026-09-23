@@ -1,0 +1,28 @@
+<<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Hardware Inventory - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="login-container">
+        <h2>Campus Hardware Inventory</h2>
+        
+        {% if error %}
+            <div class="alert-error">{{ error }}</div>
+        {% endif %}
+
+        <form action="/login" method="POST">
+            <label for="identifier">Username or Email</label>
+            <input type="text" id="identifier" name="identifier" placeholder="Enter username or email" required>
+            
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="Enter password" required>
+            
+            <button type="submit">Login</button>
+        </form>
+    </div>
+</body>
+</html>

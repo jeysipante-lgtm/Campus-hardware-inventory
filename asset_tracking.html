@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Asset Tracking - Hardware Tracking{% endblock %}
+
+{% block content %}
+<section class="tracking-section">
+    <h2>Asset Tracking & Requests</h2>
+
+    <!-- Borrow Request Modal / Inline Form -->
+    <div class="form-card">
+        <h3>Submit Borrow Request</h3>
+        <form id="borrow-request-form" onsubmit="submitBorrowRequest(event)">
+            <label for="req-item-id">Item ID:</label>
+            <input type="number" id="req-item-id" placeholder="Enter Item ID" required>
+
+            <label for="req-quantity">Quantity:</label>
+            <input type="number" id="req-quantity" min="1" value="1" required>
+
+            <label for="req-purpose">Purpose:</label>
+            <input type="text" id="req-purpose" placeholder="Lab Work, Course Project, etc." required>
+
+            <label for="req-start-date">Start Date:</label>
+            <input type="date" id="req-start-date" required>
+
+            <label for="req-return-date">Expected Return Date:</label>
+            <input type="date" id="req-return-date" required>
+
+            <button type="submit" class="btn-primary">Submit Request</button>
+        </form>
+    </div>
+
+    <!-- Active Requests & Tracking Table -->
+    <h3>Transaction Logs</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Tx ID</th>
+                <th>Item ID</th>
+                <th>Requested By</th>
+                <th>Quantity</th>
+                <th>Status</th>
+                <th>Start Date</th>
+                <th>Return Date</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="tracking-table-body">
+            <!-- Dynamically populated via fetchRequests() in app.js -->
+        </tbody>
+    </table>
+</section>
+{% endblock %}

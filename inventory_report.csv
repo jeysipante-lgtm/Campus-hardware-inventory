@@ -1,0 +1,9 @@
+ID,Item Name,Category,Quantity,Unit Price ($),Status
+2,ARDUINO UNO,MICROCONTROLLER,4,150.0,Low Stock
+3,ARDUINO WIFI,MICRO CONTROLLER,10,150.0,In Stock
+4,ESP 32,MICRO  CONTROLLER,5,55.0,Low Stock
+5,PIC Microcontroller,MICROCONTROLLER,7,500.0,In Stock
+6,IR Sensor,Sensor,0,50.0,Out of Stock
+7,L293D,IC,1,35.0,Low Stock
+8,L298N,IC,5,150.0,Low Stock
+9,Micro Servo,MICROCONTROLLER,7,130.0,In Stock

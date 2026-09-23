@@ -1,0 +1,192 @@
+/* --- Reset & Global Styles --- */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+body {
+    background-color: #fcfcfc;
+    color: #222222;
+    line-height: 1.5;
+    padding: 20px;
+}
+
+/* --- Layout Container --- */
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px 0;
+}
+
+/* --- Header & User Info --- */
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 15px;
+}
+
+.app-header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.user-info {
+    font-size: 0.9rem;
+    color: #555555;
+}
+
+/* --- Navigation --- */
+.app-nav {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.nav-link {
+    text-decoration: none;
+    color: #555555;
+    font-size: 0.95rem;
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+}
+
+.nav-link:hover {
+    background-color: #f0f0f0;
+    color: #000000;
+}
+
+/* --- Data Tables --- */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    margin-bottom: 25px;
+    font-size: 0.9rem;
+}
+
+.data-table th, 
+.data-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.data-table th {
+    background-color: #f7f7f7;
+    font-weight: 600;
+    color: #333333;
+}
+
+.data-table tr:hover {
+    background-color: #fafafa;
+}
+
+/* --- Forms & Cards --- */
+.controls-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.form-card {
+    border: 1px solid #e0e0e0;
+    padding: 18px;
+    border-radius: 4px;
+    background-color: #ffffff;
+    margin-bottom: 20px;
+}
+
+.form-card h3 {
+    font-size: 1rem;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+label {
+    display: block;
+    font-size: 0.85rem;
+    margin-top: 10px;
+    margin-bottom: 4px;
+    color: #444444;
+}
+
+/* --- Inputs & Buttons --- */
+input, select, button {
+    font-size: 0.9rem;
+    padding: 8px 10px;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    outline: none;
+}
+
+input:focus, select:focus {
+    border-color: #666666;
+}
+
+button, .btn-primary, .btn-logout {
+    background-color: #ffffff;
+    color: #222222;
+    border: 1px solid #cccccc;
+    cursor: pointer;
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+button:hover, .btn-primary:hover, .btn-logout:hover {
+    background-color: #f0f0f0;
+}
+
+/* --- Login Page Box --- */
+.login-container {
+    max-width: 360px;
+    margin: 80px auto;
+    padding: 24px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background-color: #ffffff;
+}
+
+.login-container h2 {
+    font-size: 1.1rem;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.login-container input {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.login-container button {
+    width: 100%;
+    margin-top: 8px;
+}
+
+/* --- Alerts & Status Badges --- */
+.alert-error {
+    background-color: #fff0f0;
+    color: #c00000;
+    padding: 8px;
+    font-size: 0.85rem;
+    border: 1px solid #ffd0d0;
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.status-available {
+    color: #2e7d32;
+    font-weight: 600;
+}
+
+.status-checked-out {
+    color: #d84315;
+    font-weight: 600;
+}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white p-0">
+                <ul class="nav nav-tabs nav-justified border-bottom-0" id="authTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link text-white {% if active_tab != 'register' %}active bg-white text-primary fw-bold{% endif %}" 
+                                id="login-tab" data-bs-toggle="tab" data-bs-target="#login-pane" type="button" role="tab">
+                            Login
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link text-white {% if active_tab == 'register' %}active bg-white text-primary fw-bold{% endif %}" 
+                                id="register-tab" data-bs-toggle="tab" data-bs-target="#register-pane" type="button" role="tab">
+                            Register
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="card-body">
+                <div class="tab-content" id="authTabContent">
+                    <!-- LOGIN FORM -->
+                    <div class="tab-pane fade {% if active_tab != 'register' %}show active{% endif %}" id="login-pane" role="tabpanel">
+                        <form action="{{ url_for('login') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label">Username or Email</label>
+                                <input type="text" name="username" class="form-control" value="{{ locked_username if locked else '' }}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" name="password" class="form-control" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" {% if locked %}disabled{% endif %}>Login</button>
+                        </form>
+                        <hr>
+                        <div class="text-center">
+                            <a href="{{ url_for('reset_password') }}">Forgot Password?</a>
+                        </div>
+                    </div>
+
+                    <!-- REGISTER FORM -->
+                    <div class="tab-pane fade {% if active_tab == 'register' %}show active{% endif %}" id="register-pane" role="tabpanel">
+                        <form action="{{ url_for('register') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" name="username" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email Address</label>
+                                <input type="email" name="email" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" name="password" class="form-control" required>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100">Create Account</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

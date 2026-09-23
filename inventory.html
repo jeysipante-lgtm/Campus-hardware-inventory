@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory - Hardware Tracking{% endblock %}
+
+{% block content %}
+<section class="inventory-section">
+    <h2>Hardware Inventory</h2>
+
+    <!-- Search & Filter Controls -->
+    <div class="controls-bar">
+        <input type="text" id="search-input" placeholder="Search by name..." onkeyup="loadInventory()">
+        <select id="category-filter" onchange="loadInventory()">
+            <option value="All">All Categories</option>
+            <option value="Microcontrollers">Microcontrollers</option>
+            <option value="Sensors">Sensors</option>
+            <option value="Actuators">Actuators</option>
+
+            <option value="Tools">Tools</option>
+        </select>
+    </div>
+
+    <!-- Inventory Data Table -->
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Item Name</th>
+                <th>Category</th>
+                <th>Quantity</th>
+                <th>Unit Price</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="inventory-table-body">
+            <!-- Dynamically populated via loadInventory() in app.js -->
+        </tbody>
+    </table>
+
+    <!-- Admin Only: Add Item Panel -->
+    {% if role == 'ADMIN' %}
+    <div class="form-card">
+        <h3>Add New Inventory Item</h3>
+        <form id="add-item-form" onsubmit="handleAddItem(event)">
+            <input type="text" id="add-name" placeholder="Item Name" required>
+            <select id="add-category" required>
+                <option value="Microcontrollers">Microcontrollers</option>
+                <option value="Sensors">Sensors</option>
+                <option value="Actuators">Actuators</option>
+                <option value="Tools">Tools</option>
+            </select>
+            <input type="number" id="add-quantity" placeholder="Quantity" min="1" required>
+            <input type="number" id="add-price" placeholder="Unit Price ($)" step="0.01" min="0" required>
+            <button type="submit" class="btn-primary">Add Item</button>
+        </form>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

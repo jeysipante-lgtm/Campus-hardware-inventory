@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- HEADER BANNER -->
+<div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+    <div>
+        <h3 class="mb-0 fw-bold">Academic Hardware Portal</h3>
+        <small class="text-muted">Laboratory Equipment Requisition System</small>
+    </div>
+    {% if session.role == 'ADMIN' %}
+    <a href="{{ url_for('export_csv') }}" class="btn btn-outline-secondary btn-sm">
+        Export Audit Log (CSV)
+    </a>
+    {% endif %}
+</div>
+
+<!-- OVERVIEW CARDS -->
+<div class="row g-3 mb-4">
+    <div class="col-6">
+        <div class="p-3 border rounded bg-light">
+            <div class="text-muted small text-uppercase fw-semibold">Total Stock</div>
+            <div class="h3 mb-0 fw-bold">{{ total_stocks }}</div>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="p-3 border rounded bg-light">
+            <div class="text-muted small text-uppercase fw-semibold">Role</div>
+            <div class="h3 mb-0 fw-bold">{{ session.role }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- ADMIN ADD ITEM FORM -->
+{% if session.role == 'ADMIN' %}
+<div class="card p-3 mb-4 border">
+    <h5 class="card-title mb-3">Add New Equipment</h5>
+    <form action="{{ url_for('add_item') }}" method="POST" class="row g-2">
+        <div class="col-md-3">
+            <input type="text" name="item_name" class="form-control form-control-sm" placeholder="Equipment Name" required>
+        </div>
+        <div class="col-md-3">
+            <input type="text" name="category" class="form-control form-control-sm" placeholder="Category" required>
+        </div>
+        <div class="col-md-2">
+            <input type="number" name="quantity" class="form-control form-control-sm" placeholder="Qty" min="0" required>
+        </div>
+        <div class="col-md-2">
+            <input type="number" step="0.01" name="unit_price" class="form-control form-control-sm" placeholder="Price (₱)" min="0" required>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-primary btn-sm w-100">Add Item</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<!-- CATALOG TABLE -->
+<div class="card p-3 mb-4 border">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Equipment Catalog</h5>
+        <form method="GET" action="{{ url_for('dashboard') }}" class="d-flex gap-2">
+            <input type="text" name="search" class="form-control form-control-sm" placeholder="Search..." value="{{ search }}">
+            <select name="category" class="form-select form-select-sm">
+                <option value="ALL">All Categories</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Filter</button>
+        </form>
+    </div>
+
+    {% if session.role == 'ADMIN' %}
+    <form action="{{ url_for('delete_items') }}" method="POST">
+    {% endif %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        {% if session.role == 'ADMIN' %}
+                        <th class="text-center" style="width: 40px;">#</th>
+                        {% endif %}
+                        <th>Asset ID</th>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Stock</th>
+                        <th>Unit Price</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        {% if session.role == 'ADMIN' %}
+                        <td class="text-center">
+                            <input type="checkbox" name="selected_items" value="{{ item[0] }}">
+                        </td>
+                        {% endif %}
+                        <td><code>AST-{{ "%04d"|format(item[0]) }}</code></td>
+                        <td><strong>{{ item[1] }}</strong></td>
+                        <td>{{ item[2] }}</td>
+                        <td>
+                            {% if item[3] > 0 %}
+                                <span class="badge bg-success-subtle text-success border">{{ item[3] }} in stock</span>
+                            {% else %}
+                                <span class="badge bg-danger-subtle text-danger border">Unavailable</span>
+                            {% endif %}
+                        </td>
+                        <td>₱{{ "%.2f"|format(item[4]) }}</td>
+                        <td>
+                            {% if session.role != 'ADMIN' %}
+                            <form action="{{ url_for('borrow_item') }}" method="POST" class="d-flex gap-1 align-items-center">
+                                <input type="hidden" name="item_id" value="{{ item[0] }}">
+                                <input type="text" name="student_number" class="form-control form-control-sm" placeholder="Student No." value="{{ session.get('student_number', '') }}" required style="max-width: 120px;">
+                                <input type="number" name="quantity" value="1" min="1" max="{{ item[3] }}" class="form-control form-control-sm" style="width: 55px;">
+                                <button type="submit" class="btn btn-sm btn-primary" {% if item[3] < 1 %}disabled{% endif %}>Borrow</button>
+                            </form>
+                            {% else %}
+                            <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if session.role == 'ADMIN' %}
+        <div class="mt-2">
+            <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete selected items?')">
+                Delete Selected
+            </button>
+        </div>
+    </form>
+    {% endif %}
+</div>
+
+<!-- USER BORROWED ITEMS -->
+{% if session.role != 'ADMIN' %}
+<div class="card p-3 mb-4 border">
+    <h5 class="mb-3">My Requests & Borrowed Equipment</h5>
+    {% if borrows %}
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Req ID</th>
+                    <th>Equipment Name</th>
+                    <th>Qty</th>
+                    <th>Date Requested</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in borrows %}
+                <tr>
+                    <td><code>REQ-{{ "%04d"|format(b[0]) }}</code></td>
+                    <td><strong>{{ b[4] }}</strong></td>
+                    <td>{{ b[5] }}</td>
+                    <td><small class="text-muted">{{ b[6] }}</small></td>
+                    <td>
+                        {% if b[8] == 'PENDING_BORROW' %}
+                            <span class="badge bg-warning-subtle text-warning border">Pending Approval</span>
+                        {% elif b[8] == 'BORROWED' %}
+                            <span class="badge bg-success-subtle text-success border">Issued / In Use</span>
+                        {% elif b[8] == 'RETURN_PENDING' %}
+                            <span class="badge bg-info-subtle text-info border">Return Pending</span>
+                        {% elif b[8] == 'RETURNED' %}
+                            <span class="badge bg-secondary-subtle text-secondary border">Returned</span>
+                        {% elif b[8] == 'BORROW_REJECTED' %}
+                            <span class="badge bg-danger-subtle text-danger border">Disapproved</span>
+                        {% else %}
+                            <span>{{ b[8] }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if b[8] == 'BORROWED' %}
+                        <form action="{{ url_for('return_item', log_id=b[0]) }}" method="POST">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Return</button>
+                        </form>
+                        {% else %}
+                        <span class="text-muted small">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">No borrow records found.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- ADMIN APPROVALS PANEL -->
+{% if session.role == 'ADMIN' %}
+<div class="card p-3 mb-4 border">
+    <h5 class="mb-3">Approvals Center</h5>
+    
+    <!-- PENDING RESETS -->
+    <h6 class="fw-bold mb-2 text-secondary">Password Resets</h6>
+    {% if pending_resets %}
+    <form action="{{ url_for('process_resets') }}" method="POST" class="mb-4">
+        <div class="table-responsive mb-2">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-center" style="width: 40px;">#</th>
+                        <th>Req ID</th>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for reset in pending_resets %}
+                    <tr>
+                        <td class="text-center">
+                            <input type="checkbox" name="selected_resets" value="{{ reset[0] }}">
+                        </td>
+                        <td><code>RST-{{ reset[0] }}</code></td>
+                        <td><strong>{{ reset[1] }}</strong></td>
+                        <td>{{ reset[2] }}</td>
+                        <td><small class="text-muted">{{ reset[3] }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Approve Selected</button>
+        <button type="submit" name="action" value="reject" class="btn btn-sm btn-outline-danger">Reject Selected</button>
+    </form>
+    {% else %}
+    <p class="text-muted small mb-3">No pending password resets.</p>
+    {% endif %}
+
+    <!-- PENDING BORROWS -->
+    <h6 class="fw-bold mb-2 text-secondary">Borrow Requests</h6>
+    {% if pending_borrows %}
+    <div class="table-responsive mb-4">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Log ID</th>
+                    <th>User</th>
+                    <th>Student No.</th>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Date</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for loan in pending_borrows %}
+                <tr>
+                    <td><code>#{{ loan[0] }}</code></td>
+                    <td><strong>{{ loan[1] }}</strong></td>
+                    <td>{{ loan[2] }}</td>
+                    <td>{{ loan[4] }}</td>
+                    <td>{{ loan[5] }}</td>
+                    <td><small class="text-muted">{{ loan[6] }}</small></td>
+                    <td>
+                        <a href="{{ url_for('approve_borrow', log_id=loan[0]) }}" class="btn btn-sm btn-success">Approve</a>
+                        <a href="{{ url_for('reject_borrow', log_id=loan[0]) }}" class="btn btn-sm btn-outline-danger">Reject</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-3">No pending borrow requests.</p>
+    {% endif %}
+
+    <!-- PENDING RETURNS -->
+    <h6 class="fw-bold mb-2 text-secondary">Return Verifications</h6>
+    {% if pending_returns %}
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Log ID</th>
+                    <th>User</th>
+                    <th>Student No.</th>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ret in pending_returns %}
+                <tr>
+                    <td><code>#{{ ret[0] }}</code></td>
+                    <td><strong>{{ ret[1] }}</strong></td>
+                    <td>{{ ret[2] }}</td>
+                    <td>{{ ret[4] }}</td>
+                    <td>{{ ret[5] }}</td>
+                    <td>
+                        <a href="{{ url_for('approve_return', log_id=ret[0]) }}" class="btn btn-sm btn-success">Verify Return</a>
+                        <a href="{{ url_for('reject_return', log_id=ret[0]) }}" class="btn btn-sm btn-outline-danger">Reject</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">No pending return requests.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

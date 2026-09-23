@@ -1,0 +1,402 @@
+import os
+import re
+import csv
+import sqlite3
+import logging
+import bcrypt
+import tkinter as tk
+from tkinter import ttk, messagebox
+from pydantic import BaseModel, Field, field_validator, ValidationError
+
+# ==========================================
+# 1. LOGGING SETUP
+# ==========================================
+def setup_logger():
+    log_dir = "app_logging"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    logging.basicConfig(
+        filename=os.path.join(log_dir, "app.log"),
+        level=logging.INFO,
+        format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    return logging.getLogger("HardwareLogger")
+
+logger = setup_logger()
+
+# ==========================================
+# 2. DATABASE INITIALIZATION
+# ==========================================
+DB_NAME = "hardware_inventory.db"
+
+def init_db():
+    try:
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS hardware (
+                    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    unit_price REAL NOT NULL,
+                    status TEXT NOT NULL
+                )
+            """)
+        logger.info("Database initialized successfully.")
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization error: {e}")
+
+# ==========================================
+# 3. SCHEMAS (DATA VALIDATION)
+# ==========================================
+class UserSchema(BaseModel):
+    username: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=6)
+
+    @field_validator('username')
+    def username_alphanumeric(cls, v):
+        if not re.match(r"^[a-zA-Z0-9_]+$", v):
+            raise ValueError('Username must be alphanumeric.')
+        return v
+
+class HardwareItemSchema(BaseModel):
+    item_name: str = Field(..., min_length=2)
+    category: str = Field(..., min_length=2)
+    quantity: int = Field(..., ge=0)
+    unit_price: float = Field(..., ge=0.0)
+
+# ==========================================
+# 4. CONTROLLERS
+# ==========================================
+class AuthController:
+    def __init__(self, db_name=DB_NAME):
+        self.db_name = db_name
+
+    def register(self, username, password):
+        try:
+            validated = UserSchema(username=username, password=password)
+            hashed_pw = bcrypt.hashpw(validated.password.encode('utf-8'), bcrypt.gensalt())
+
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                    (validated.username, hashed_pw.decode('utf-8'))
+                )
+            logger.info(f"User registration successful for: '{validated.username}'")
+            return True, "Registration successful."
+        except ValidationError as e:
+            msg = e.errors()[0]['msg']
+            logger.warning(f"Registration validation failed: {msg}")
+            return False, f"Validation Error: {msg}"
+        except sqlite3.IntegrityError:
+            logger.warning(f"Registration failed: Username '{username}' already exists.")
+            return False, "Username already exists."
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+            return False, str(e)
+
+    def login(self, username, password):
+        if not username or not password:
+            logger.warning("Login failed: Empty fields.")
+            return False, "Fields cannot be empty."
+
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+                row = cursor.fetchone()
+
+            if row and bcrypt.checkpw(password.encode('utf-8'), row[0].encode('utf-8')):
+                logger.info(f"User login successful for: '{username}'")
+                return True, "Login successful."
+            
+            logger.warning(f"Failed login attempt for username: '{username}'")
+        except Exception as e:
+            logger.error(f"Login database error: {e}")
+
+        return False, "Invalid username or password."
+
+
+class InventoryController:
+    def __init__(self, db_name=DB_NAME):
+        self.db_name = db_name
+
+    def compute_status(self, quantity: int) -> str:
+        if quantity > 5:
+            return "In Stock"
+        elif 1 <= quantity <= 5:
+            return "Low Stock"
+        else:
+            return "Out of Stock"
+
+    def fetch_all(self):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT item_id, item_name, category, quantity, unit_price, status FROM hardware")
+                return cursor.fetchall()
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching inventory records: {e}")
+            return []
+
+    def get_total_valuation(self) -> float:
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT SUM(quantity * unit_price) FROM hardware")
+                val = cursor.fetchone()[0]
+                return val if val else 0.0
+        except sqlite3.Error as e:
+            logger.error(f"Error calculating total valuation: {e}")
+            return 0.0
+
+    def add_item(self, item_name, category, quantity_str, price_str):
+        try:
+            qty = int(quantity_str)
+            price = float(price_str)
+            validated = HardwareItemSchema(
+                item_name=item_name, category=category, quantity=qty, unit_price=price
+            )
+        except ValueError:
+            logger.warning("Item addition validation failed: Invalid numeric format.")
+            return False, "Quantity must be an integer and Unit Price must be a valid number."
+        except ValidationError as e:
+            msg = e.errors()[0]['msg']
+            logger.warning(f"Item addition validation failed: {msg}")
+            return False, f"Validation Error: {msg}"
+
+        status = self.compute_status(validated.quantity)
+
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO hardware (item_name, category, quantity, unit_price, status) VALUES (?, ?, ?, ?, ?)",
+                    (validated.item_name, validated.category, validated.quantity, validated.unit_price, status)
+                )
+            logger.info(f"Item added: '{validated.item_name}' | Status: '{status}'")
+            return True, "Item added successfully."
+        except sqlite3.Error as e:
+            logger.error(f"Error saving item to database: {e}")
+            return False, "Database operation failed."
+
+    def export_to_csv(self, filename="inventory_report.csv"):
+        try:
+            items = self.fetch_all()
+            with open(filename, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerow(["ID", "Item Name", "Category", "Quantity", "Unit Price ($)", "Status"])
+                writer.writerows(items)
+            logger.info(f"Inventory report exported successfully to '{filename}'.")
+            return True, f"Report exported to '{filename}'."
+        except Exception as e:
+            logger.error(f"CSV export failed: {e}")
+            return False, "Export failed."
+
+# ==========================================
+# 5. VIEWS
+# ==========================================
+class LoginView:
+    def __init__(self, root, on_success):
+        self.root = root
+        self.on_success = on_success
+        self.auth = AuthController()
+
+        self.root.title("Campus Hardware System - Login")
+        self.root.geometry("350x280")
+        self.root.resizable(False, False)
+
+        tk.Label(root, text="System Authentication", font=("Arial", 14, "bold")).pack(pady=15)
+
+        tk.Label(root, text="Username:").pack(anchor="w", padx=35)
+        self.entry_user = tk.Entry(root, width=30)
+        self.entry_user.pack(padx=35, pady=(0, 10))
+
+        tk.Label(root, text="Password:").pack(anchor="w", padx=35)
+        self.entry_pass = tk.Entry(root, show="*", width=30)
+        self.entry_pass.pack(padx=35, pady=(0, 15))
+
+        btn_frame = tk.Frame(root)
+        btn_frame.pack(pady=5)
+
+        tk.Button(btn_frame, text="Login", command=self.login, width=10, bg="#4CAF50", fg="white").pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Register", command=self.register, width=10, bg="#2196F3", fg="white").pack(side="right", padx=5)
+
+    def login(self):
+        success, msg = self.auth.login(self.entry_user.get().strip(), self.entry_pass.get())
+        if success:
+            self.on_success()
+        else:
+            messagebox.showerror("Error", msg)
+
+    def register(self):
+        success, msg = self.auth.register(self.entry_user.get().strip(), self.entry_pass.get())
+        if success:
+            messagebox.showinfo("Success", msg)
+            self.entry_pass.delete(0, tk.END)
+        else:
+            messagebox.showwarning("Warning", msg)
+
+
+class InventoryView:
+    def __init__(self, root, on_logout):
+        self.root = root
+        self.on_logout = on_logout
+        self.controller = InventoryController()
+
+        self.root.title("Campus Hardware & Component Inventory Log")
+        self.root.geometry("800x600")
+
+        # Top Banner & Analytics Header
+        banner = tk.Frame(self.root, bg="#2C3E50", pady=10)
+        banner.pack(fill="x")
+
+        self.lbl_valuation = tk.Label(
+            banner, text="Total Inventory Valuation: $0.00",
+            font=("Arial", 12, "bold"), bg="#2C3E50", fg="white"
+        )
+        self.lbl_valuation.pack(side="left", padx=15)
+
+        tk.Button(
+            banner, text="Logout", command=self.logout,
+            bg="#E74C3C", fg="white", font=("Arial", 9, "bold")
+        ).pack(side="right", padx=15)
+
+        # Input Controls Frame
+        form = tk.LabelFrame(self.root, text="Add New Item", padx=10, pady=10)
+        form.pack(fill="x", padx=15, pady=10)
+
+        tk.Label(form, text="Item Name:").grid(row=0, column=0, sticky="w")
+        self.entry_name = tk.Entry(form, width=20)
+        self.entry_name.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(form, text="Category:").grid(row=0, column=2, sticky="w")
+        self.entry_category = tk.Entry(form, width=20)
+        self.entry_category.grid(row=0, column=3, padx=5, pady=5)
+
+        tk.Label(form, text="Quantity:").grid(row=1, column=0, sticky="w")
+        self.entry_qty = tk.Entry(form, width=20)
+        self.entry_qty.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(form, text="Unit Price ($):").grid(row=1, column=2, sticky="w")
+        self.entry_price = tk.Entry(form, width=20)
+        self.entry_price.grid(row=1, column=3, padx=5, pady=5)
+
+        tk.Button(
+            form, text="Save Item", command=self.add_item,
+            bg="#27AE60", fg="white", font=("Arial", 9, "bold")
+        ).grid(row=2, column=0, columnspan=4, pady=8, sticky="we")
+
+        # 6-Column Data Grid
+        grid_frame = tk.Frame(self.root)
+        grid_frame.pack(fill="both", expand=True, padx=15, pady=5)
+
+        scroll_y = ttk.Scrollbar(grid_frame, orient="vertical")
+        self.tree = ttk.Treeview(
+            grid_frame,
+            columns=("ID", "Name", "Category", "Qty", "Price", "Status"),
+            show="headings",
+            yscrollcommand=scroll_y.set
+        )
+        scroll_y.config(command=self.tree.yview)
+        scroll_y.pack(side="right", fill="y")
+
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Name", text="Item Name")
+        self.tree.heading("Category", text="Category")
+        self.tree.heading("Qty", text="Qty")
+        self.tree.heading("Price", text="Unit Price ($)")
+        self.tree.heading("Status", text="Status")
+
+        self.tree.column("ID", width=40, anchor="center")
+        self.tree.column("Name", width=180)
+        self.tree.column("Category", width=140)
+        self.tree.column("Qty", width=60, anchor="center")
+        self.tree.column("Price", width=100, anchor="e")
+        self.tree.column("Status", width=120, anchor="center")
+        self.tree.pack(fill="both", expand=True)
+
+        # Row Tagging Colors
+        self.tree.tag_configure("In Stock", background="#D4EDDA")       # Green
+        self.tree.tag_configure("Low Stock", background="#FFF3CD")      # Yellow
+        self.tree.tag_configure("Out of Stock", background="#F8D7DA")   # Red
+
+        # Action Buttons
+        ctrl_frame = tk.Frame(self.root)
+        ctrl_frame.pack(fill="x", padx=15, pady=10)
+
+        tk.Button(
+            ctrl_frame, text="Export Inventory to CSV Report", command=self.export_csv,
+            bg="#16A085", fg="white", font=("Arial", 9, "bold")
+        ).pack(side="left")
+
+        self.load_data()
+
+    def load_data(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        items = self.controller.fetch_all()
+        for row in items:
+            formatted_row = (row[0], row[1], row[2], row[3], f"${row[4]:.2f}", row[5])
+            self.tree.insert("", "end", values=formatted_row, tags=(row[5],))
+
+        valuation = self.controller.get_total_valuation()
+        self.lbl_valuation.config(text=f"Total Inventory Valuation: ${valuation:,.2f}")
+
+    def add_item(self):
+        name = self.entry_name.get().strip()
+        cat = self.entry_category.get().strip()
+        qty = self.entry_qty.get().strip()
+        price = self.entry_price.get().strip()
+
+        success, msg = self.controller.add_item(name, cat, qty, price)
+        if success:
+            self.entry_name.delete(0, tk.END)
+            self.entry_category.delete(0, tk.END)
+            self.entry_qty.delete(0, tk.END)
+            self.entry_price.delete(0, tk.END)
+            self.load_data()
+        else:
+            messagebox.showerror("Error", msg)
+
+    def export_csv(self):
+        success, msg = self.controller.export_to_csv()
+        if success:
+            messagebox.showinfo("Export", msg)
+        else:
+            messagebox.showerror("Error", msg)
+
+    def logout(self):
+        logger.info("User initiated session logout.")
+        self.on_logout()
+
+# ==========================================
+# 6. APPLICATION ENTRY POINT
+# ==========================================
+def launch_login():
+    for widget in root.winfo_children():
+        widget.destroy()
+    LoginView(root, on_success=launch_inventory)
+
+def launch_inventory():
+    for widget in root.winfo_children():
+        widget.destroy()
+    InventoryView(root, on_logout=launch_login)
+
+if __name__ == "__main__":
+    init_db()
+    root = tk.Tk()
+    launch_login()
+    root.mainloop()
