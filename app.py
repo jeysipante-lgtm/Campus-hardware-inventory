@@ -98,7 +98,12 @@ def register():
         password = request.form.get("password", "")
         role = request.form.get("role", "USER").strip()  # Kukunin ang piniling role (USER or ADMIN)
 
-        # Ipasa ang student_number at role sa AuthController.register
+        # Validation sa inputs
+        if not username or not password:
+            flash("Username and password are required.", "danger")
+            return render_template("login.html", active_tab="register")
+
+        # Ipasa ang inputs sa AuthController.register
         ok, msg = AuthController.register(
             username=username,
             email=email,
