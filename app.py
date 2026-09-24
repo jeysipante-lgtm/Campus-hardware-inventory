@@ -1,6 +1,7 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
 from LaboratorySystem_Web_Lab1 import (
+    db,
     init_db,
     logger,
     AuthController,
@@ -17,8 +18,11 @@ app.secret_key = os.urandom(24)  # Kailangan para sa session at flash messages
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Jc%4022113312@db.iclqeezqkjdmmhonnyhw.supabase.co:5432/postgres'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# I-initialize ang database bago patakbuhin ang server
-init_db()
+# I-initialize ang database gamit ang Flask app instance
+db.init_app(app)
+
+with app.app_context():
+    init_db()
 
 
 # ==========================================
@@ -96,14 +100,8 @@ def register():
         student_number = request.form.get("student_number", "").strip()
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
-        role = request.form.get("role", "USER").strip()  # Kukunin ang piniling role (USER or ADMIN)
+        role = request.form.get("role", "USER").strip()
 
-        # Validation sa inputs
-        if not username or not password:
-            flash("Username and password are required.", "danger")
-            return render_template("login.html", active_tab="register")
-
-        # Ipasa ang inputs sa AuthController.register
         ok, msg = AuthController.register(
             username=username,
             email=email,
@@ -123,7 +121,7 @@ def register():
 
 
 @app.route("/reset_password", methods=["GET", "POST"])
-@app.route("/reset_request", methods=["GET", "POST"])  # Alias para maiwasan ang BuildError mula sa template
+@app.route("/reset_request", methods=["GET", "POST"])
 def reset_password():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
