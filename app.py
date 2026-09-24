@@ -10,15 +10,14 @@ from LaboratorySystem_Web_Lab1 import (
 )
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Kailangan para sa session at flash messages
+app.secret_key = os.urandom(24)
 
 # ==========================================
-# DATABASE CONFIGURATION (SUPABASE POSTGRESQL - IPV4 POOLER)
+# DATABASE CONFIGURATION
 # ==========================================
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# I-initialize ang database gamit ang Flask app instance
 db.init_app(app)
 
 with app.app_context():
@@ -208,12 +207,18 @@ def delete_items():
     return redirect(url_for('dashboard'))
 
 
+# ==========================================
+# BORROW & RETURN ROUTES
+# ==========================================
+
 @app.route("/borrow_item", methods=["POST"])
 @login_required
 def borrow_item():
     student_number = request.form.get("student_number", "").strip()
     item_id = request.form.get("item_id")
     quantity = int(request.form.get("quantity", 1))
+
+    session['student_number'] = student_number
 
     ok, msg = InventoryController.request_borrow(
         session["username"], student_number, item_id, quantity
@@ -230,7 +235,11 @@ def return_item(log_id):
     return redirect(url_for('dashboard'))
 
 
-@app.route("/admin/approve_borrow/<int:log_id>")
+# ==========================================
+# ADMIN APPROVAL ROUTES (MATCHES HTML URL_FOR)
+# ==========================================
+
+@app.route("/approve_borrow/<int:log_id>")
 @admin_required
 def approve_borrow(log_id):
     ok, msg = AdminController.approve_borrow(log_id)
@@ -238,7 +247,7 @@ def approve_borrow(log_id):
     return redirect(url_for('dashboard'))
 
 
-@app.route("/admin/reject_borrow/<int:log_id>")
+@app.route("/reject_borrow/<int:log_id>")
 @admin_required
 def reject_borrow(log_id):
     ok, msg = AdminController.reject_borrow(log_id)
@@ -246,7 +255,7 @@ def reject_borrow(log_id):
     return redirect(url_for('dashboard'))
 
 
-@app.route("/admin/approve_return/<int:log_id>")
+@app.route("/approve_return/<int:log_id>")
 @admin_required
 def approve_return(log_id):
     ok, msg = AdminController.approve_return(log_id)
@@ -254,7 +263,7 @@ def approve_return(log_id):
     return redirect(url_for('dashboard'))
 
 
-@app.route("/admin/reject_return/<int:log_id>")
+@app.route("/reject_return/<int:log_id>")
 @admin_required
 def reject_return(log_id):
     ok, msg = AdminController.reject_return(log_id)
@@ -262,7 +271,7 @@ def reject_return(log_id):
     return redirect(url_for('dashboard'))
 
 
-@app.route("/admin/process_resets", methods=["POST"])
+@app.route("/process_resets", methods=["POST"])
 @admin_required
 def process_resets():
     request_ids = request.form.getlist("selected_resets")
@@ -294,9 +303,4 @@ def export_csv():
 
 
 if __name__ == "__main__":
-    print("\n" + "="*50)
-    print(" Application is starting...")
-    print(" Open your browser and go to: http://127.0.0.1:5000")
-    print("="*50 + "\n", flush=True)
-
     app.run(debug=True, host="127.0.0.1", port=5000, use_reloader=False)
