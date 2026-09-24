@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -38,6 +39,19 @@ class InventoryItem(db.Model):
     unit_price = db.Column(db.Numeric(10, 2), default=0.00, nullable=False)
 
 
+class InventoryLog(db.Model):
+    __tablename__ = 'inventory_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), nullable=False)
+    student_number = db.Column(db.String(50), nullable=False)
+    item_id = db.Column(db.Integer, nullable=False)
+    item_name = db.Column(db.String(255), nullable=False)
+    quantity = db.Column(db.Integer, default=1, nullable=False)
+    request_date = db.Column(db.DateTime, default=datetime.utcnow)
+    return_date = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(50), default='PENDING_BORROW', nullable=False)
+
+
 # ==========================================
 # AUTH CONTROLLER
 # ==========================================
@@ -46,15 +60,12 @@ class AuthController:
     @staticmethod
     def register(username, email, password, student_number="", role="USER"):
         try:
-            # Suriin kung umiiral na ang username
             existing_user = User.query.filter_by(username=username).first()
             if existing_user:
                 return False, "Username already taken."
 
-            # I-hash ang password para sa seguridad
             hashed_pwd = generate_password_hash(password)
 
-            # Lumikha ng bagong User record
             new_user = User(
                 username=username,
                 email=email,
@@ -63,7 +74,6 @@ class AuthController:
                 role=role
             )
 
-            # I-save at i-commit sa Supabase PostgreSQL
             db.session.add(new_user)
             db.session.commit()
             
@@ -108,7 +118,7 @@ class AuthController:
 
 
 # ==========================================
-# INVENTORY CONTROLLER (FULL DATABASE OPERABILITY)
+# INVENTORY CONTROLLER
 # ==========================================
 
 class InventoryController:
@@ -180,7 +190,6 @@ class InventoryController:
         if not item_ids:
             return False, "No items selected."
         try:
-            # Conversion to integer list
             ids = [int(i) for i in item_ids]
             InventoryItem.query.filter(InventoryItem.id.in_(ids)).delete(synchronize_session=False)
             db.session.commit()
@@ -191,16 +200,71 @@ class InventoryController:
             return False, f"Failed to delete items: {str(e)}"
 
     @staticmethod
-    def fetch_borrows(username=None):
-        return []
+    def request_borrow(username, student_number, item_id, quantity):
+        try:
+            item = InventoryItem.query.get(item_id)
+            if not item:
+                return False, "Equipment not found."
+            
+            qty = int(quantity)
+            if item.quantity < qty:
+                return False, "Not enough stock available."
+
+            new_log = InventoryLog(
+                username=username,
+                student_number=student_number,
+                item_id=item.id,
+                item_name=item.item_name,
+                quantity=qty,
+                status='PENDING_BORROW'
+            )
+            db.session.add(new_log)
+            db.session.commit()
+            return True, "Borrow request submitted for admin approval!"
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error requesting borrow: {str(e)}")
+            return False, f"Error submitting request: {str(e)}"
 
     @staticmethod
-    def request_borrow(username, student_number, item_id, quantity):
-        return True, "Borrow request submitted."
+    def fetch_borrows(username=None):
+        try:
+            query = InventoryLog.query
+            if username:
+                query = query.filter(InventoryLog.username == username)
+            
+            logs = query.order_by(InventoryLog.id.desc()).all()
+            return [
+                [
+                    log.id,
+                    log.username,
+                    log.student_number,
+                    log.item_id,
+                    log.item_name,
+                    log.quantity,
+                    log.request_date.strftime('%Y-%m-%d %H:%M') if log.request_date else '',
+                    log.return_date.strftime('%Y-%m-%d %H:%M') if log.return_date else '',
+                    log.status
+                ] for log in logs
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching borrows: {str(e)}")
+            return []
 
     @staticmethod
     def request_return(username, log_id):
-        return True, "Return request submitted."
+        try:
+            log = InventoryLog.query.filter_by(id=log_id, username=username, status='BORROWED').first()
+            if not log:
+                return False, "Invalid return request."
+            
+            log.status = 'RETURN_PENDING'
+            db.session.commit()
+            return True, "Return request submitted! Awaiting admin verification."
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error requesting return: {str(e)}")
+            return False, f"Error processing return request: {str(e)}"
 
     @staticmethod
     def export_to_csv():
@@ -225,33 +289,111 @@ class AdminController:
         return []
 
     @staticmethod
-    def fetch_pending_borrows():
-        return []
-
-    @staticmethod
-    def fetch_pending_returns():
-        return []
-
-    @staticmethod
-    def approve_borrow(log_id):
-        return True, "Borrow approved."
-
-    @staticmethod
-    def reject_borrow(log_id):
-        return True, "Borrow rejected."
-
-    @staticmethod
-    def approve_return(log_id):
-        return True, "Return approved."
-
-    @staticmethod
-    def reject_return(log_id):
-        return True, "Return rejected."
-
-    @staticmethod
     def approve_resets(request_ids):
         return True, "Resets approved."
 
     @staticmethod
     def reject_resets(request_ids):
         return True, "Resets rejected."
+
+    @staticmethod
+    def fetch_pending_borrows():
+        try:
+            logs = InventoryLog.query.filter_by(status='PENDING_BORROW').order_by(InventoryLog.id.asc()).all()
+            return [
+                [
+                    log.id, log.username, log.student_number, log.item_id,
+                    log.item_name, log.quantity,
+                    log.request_date.strftime('%Y-%m-%d %H:%M') if log.request_date else '',
+                    '', log.status
+                ] for log in logs
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching pending borrows: {str(e)}")
+            return []
+
+    @staticmethod
+    def fetch_pending_returns():
+        try:
+            logs = InventoryLog.query.filter_by(status='RETURN_PENDING').order_by(InventoryLog.id.asc()).all()
+            return [
+                [
+                    log.id, log.username, log.student_number, log.item_id,
+                    log.item_name, log.quantity,
+                    log.request_date.strftime('%Y-%m-%d %H:%M') if log.request_date else '',
+                    '', log.status
+                ] for log in logs
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching pending returns: {str(e)}")
+            return []
+
+    @staticmethod
+    def approve_borrow(log_id):
+        try:
+            log = InventoryLog.query.filter_by(id=log_id, status='PENDING_BORROW').first()
+            if not log:
+                return False, "Borrow request not found."
+            
+            item = InventoryItem.query.get(log.item_id)
+            if not item or item.quantity < log.quantity:
+                return False, "Not enough stock to approve."
+
+            item.quantity -= log.quantity
+            log.status = 'BORROWED'
+            db.session.commit()
+            return True, f"Borrow request #{log_id} approved."
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error approving borrow: {str(e)}")
+            return False, f"Failed to approve borrow: {str(e)}"
+
+    @staticmethod
+    def reject_borrow(log_id):
+        try:
+            log = InventoryLog.query.filter_by(id=log_id, status='PENDING_BORROW').first()
+            if not log:
+                return False, "Borrow request not found."
+            
+            log.status = 'BORROW_REJECTED'
+            db.session.commit()
+            return True, f"Borrow request #{log_id} rejected."
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error rejecting borrow: {str(e)}")
+            return False, f"Failed to reject borrow: {str(e)}"
+
+    @staticmethod
+    def approve_return(log_id):
+        try:
+            log = InventoryLog.query.filter_by(id=log_id, status='RETURN_PENDING').first()
+            if not log:
+                return False, "Return request not found."
+            
+            item = InventoryItem.query.get(log.item_id)
+            if item:
+                item.quantity += log.quantity
+
+            log.status = 'RETURNED'
+            log.return_date = datetime.utcnow()
+            db.session.commit()
+            return True, f"Return #{log_id} verified and stock updated."
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error approving return: {str(e)}")
+            return False, f"Failed to verify return: {str(e)}"
+
+    @staticmethod
+    def reject_return(log_id):
+        try:
+            log = InventoryLog.query.filter_by(id=log_id, status='RETURN_PENDING').first()
+            if not log:
+                return False, "Return request not found."
+            
+            log.status = 'BORROWED'
+            db.session.commit()
+            return True, f"Return #{log_id} rejected."
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error rejecting return: {str(e)}")
+            return False, f"Failed to reject return: {str(e)}"
