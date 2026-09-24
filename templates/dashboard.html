@@ -93,27 +93,27 @@
                     <tr>
                         {% if session.role == 'ADMIN' %}
                         <td class="text-center">
-                            <input type="checkbox" name="selected_items" value="{{ item[0] }}">
+                            <input type="checkbox" name="selected_items" value="{{ item.id }}">
                         </td>
                         {% endif %}
-                        <td><code>AST-{{ "%04d"|format(item[0]) }}</code></td>
-                        <td><strong>{{ item[1] }}</strong></td>
-                        <td>{{ item[2] }}</td>
+                        <td><code>AST-{{ "%04d"|format(item.id) }}</code></td>
+                        <td><strong>{{ item.item_name }}</strong></td>
+                        <td>{{ item.category }}</td>
                         <td>
-                            {% if item[3] > 0 %}
-                                <span class="badge bg-success-subtle text-success border">{{ item[3] }} in stock</span>
+                            {% if item.quantity > 0 %}
+                                <span class="badge bg-success-subtle text-success border">{{ item.quantity }} in stock</span>
                             {% else %}
                                 <span class="badge bg-danger-subtle text-danger border">Unavailable</span>
                             {% endif %}
                         </td>
-                        <td>₱{{ "%.2f"|format(item[4]) }}</td>
+                        <td>₱{{ "%.2f"|format(item.unit_price) }}</td>
                         <td>
                             {% if session.role != 'ADMIN' %}
                             <form action="{{ url_for('borrow_item') }}" method="POST" class="d-flex gap-1 align-items-center">
-                                <input type="hidden" name="item_id" value="{{ item[0] }}">
+                                <input type="hidden" name="item_id" value="{{ item.id }}">
                                 <input type="text" name="student_number" class="form-control form-control-sm" placeholder="Student No." value="{{ session.get('student_number', '') }}" required style="max-width: 120px;">
-                                <input type="number" name="quantity" value="1" min="1" max="{{ item[3] }}" class="form-control form-control-sm" style="width: 55px;">
-                                <button type="submit" class="btn btn-sm btn-primary" {% if item[3] < 1 %}disabled{% endif %}>Borrow</button>
+                                <input type="number" name="quantity" value="1" min="1" max="{{ item.quantity }}" class="form-control form-control-sm" style="width: 55px;">
+                                <button type="submit" class="btn btn-sm btn-primary" {% if item.quantity < 1 %}disabled{% endif %}>Borrow</button>
                             </form>
                             {% else %}
                             <span class="text-muted small">—</span>
