@@ -11,6 +11,12 @@ from LaboratorySystem_Web_Lab1 import (
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Kailangan para sa session at flash messages
 
+# ==========================================
+# DATABASE CONFIGURATION (SUPABASE POSTGRESQL)
+# ==========================================
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Jc%4022113312@db.iclqeezqkjdmmhonnyhw.supabase.co:5432/postgres'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 # I-initialize ang database bago patakbuhin ang server
 init_db()
 
