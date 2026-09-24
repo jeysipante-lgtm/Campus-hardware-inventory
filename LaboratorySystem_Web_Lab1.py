@@ -14,7 +14,11 @@ def init_db(app=None):
         with app.app_context():
             db.create_all()
 
-# Database Models
+
+# ==========================================
+# DATABASE MODELS
+# ==========================================
+
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -23,6 +27,20 @@ class User(db.Model):
     email = db.Column(db.String(255), nullable=True)
     password = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(50), default='USER')
+
+
+class InventoryItem(db.Model):
+    __tablename__ = 'inventory'
+    id = db.Column(db.Integer, primary_key=True)
+    item_name = db.Column(db.String(255), nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    quantity = db.Column(db.Integer, default=0, nullable=False)
+    unit_price = db.Column(db.Numeric(10, 2), default=0.00, nullable=False)
+
+
+# ==========================================
+# AUTH CONTROLLER
+# ==========================================
 
 class AuthController:
     @staticmethod
@@ -89,30 +107,92 @@ class AuthController:
             return False, f"Error resetting password: {str(e)}"
 
 
+# ==========================================
+# INVENTORY CONTROLLER (FULL DATABASE OPERABILITY)
+# ==========================================
+
 class InventoryController:
     @staticmethod
     def fetch_all(search_name="", category="ALL"):
-        return []
+        try:
+            query = InventoryItem.query
+            if search_name:
+                query = query.filter(InventoryItem.item_name.ilike(f"%{search_name}%"))
+            if category and category != "ALL":
+                query = query.filter(InventoryItem.category == category)
+            
+            items = query.order_by(InventoryItem.id.asc()).all()
+            return [
+                {
+                    'id': item.id,
+                    'item_name': item.item_name,
+                    'category': item.category,
+                    'quantity': item.quantity,
+                    'unit_price': float(item.unit_price)
+                } for item in items
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching inventory: {str(e)}")
+            return []
 
     @staticmethod
     def get_categories():
-        return ["ALL", "ELECTRONICS", "HARDWARE"]
+        try:
+            categories = db.session.query(InventoryItem.category).distinct().all()
+            cats = [c[0] for c in categories if c[0]]
+            if "ALL" not in cats:
+                cats.insert(0, "ALL")
+            return cats
+        except Exception as e:
+            logger.error(f"Error fetching categories: {str(e)}")
+            return ["ALL", "ELECTRONICS", "HARDWARE"]
 
     @staticmethod
     def get_total_stocks():
-        return 0
+        try:
+            total = db.session.query(db.func.sum(InventoryItem.quantity)).scalar()
+            return total if total is not None else 0
+        except Exception as e:
+            logger.error(f"Error calculating total stocks: {str(e)}")
+            return 0
+
+    @staticmethod
+    def add_item(name, category, quantity, price):
+        if not name or not category:
+            return False, "Item name and category are required."
+        try:
+            new_item = InventoryItem(
+                item_name=name,
+                category=category,
+                quantity=int(quantity),
+                unit_price=float(price)
+            )
+            db.session.add(new_item)
+            db.session.commit()
+            return True, f"Item '{name}' added successfully!"
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error adding item: {str(e)}")
+            return False, f"Failed to add item: {str(e)}"
+
+    @staticmethod
+    def delete_items(item_ids):
+        if not item_ids:
+            return False, "No items selected."
+        try:
+            # Conversion to integer list
+            ids = [int(i) for i in item_ids]
+            InventoryItem.query.filter(InventoryItem.id.in_(ids)).delete(synchronize_session=False)
+            db.session.commit()
+            return True, "Selected items deleted successfully."
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error deleting items: {str(e)}")
+            return False, f"Failed to delete items: {str(e)}"
 
     @staticmethod
     def fetch_borrows(username=None):
         return []
-
-    @staticmethod
-    def add_item(name, category, quantity, price):
-        return True, "Item added successfully."
-
-    @staticmethod
-    def delete_items(item_ids):
-        return True, "Items deleted successfully."
 
     @staticmethod
     def request_borrow(username, student_number, item_id, quantity):
@@ -124,8 +204,20 @@ class InventoryController:
 
     @staticmethod
     def export_to_csv():
-        return "id,item_name\n"
+        try:
+            items = InventoryController.fetch_all()
+            csv_output = "ID,Item Name,Category,Quantity,Unit Price\n"
+            for item in items:
+                csv_output += f"{item['id']},{item['item_name']},{item['category']},{item['quantity']},{item['unit_price']:.2f}\n"
+            return csv_output
+        except Exception as e:
+            logger.error(f"Error exporting CSV: {str(e)}")
+            return ""
 
+
+# ==========================================
+# ADMIN CONTROLLER
+# ==========================================
 
 class AdminController:
     @staticmethod
