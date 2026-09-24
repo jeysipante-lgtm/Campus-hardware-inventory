@@ -13,9 +13,9 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Kailangan para sa session at flash messages
 
 # ==========================================
-# DATABASE CONFIGURATION (SUPABASE POSTGRESQL)
+# DATABASE CONFIGURATION (SUPABASE POSTGRESQL - IPV4 POOLER)
 # ==========================================
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Jc%4022113312@db.iclqeezqkjdmmhonnyhw.supabase.co:5432/postgres'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # I-initialize ang database gamit ang Flask app instance
