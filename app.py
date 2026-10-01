@@ -34,8 +34,8 @@ SMTP_SERVER = "smtp-relay.brevo.com"
 SMTP_PORT = 2525
 
 # TODO: Palitan ito ng iyong totoong Brevo SMTP Login at Master Password!
-SMTP_LOGIN = "your-brevo-email@example.com"
-SMTP_PASSWORD = "your-brevo-master-password"
+SMTP_LOGIN = "-jeysipante@gmail.com"
+SMTP_PASSWORD = "Jc@221133"
 
 def send_otp_email(receiver_email, otp, intent):
     """Sends a 6-digit OTP using Brevo SMTP."""
@@ -48,7 +48,7 @@ def send_otp_email(receiver_email, otp, intent):
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_LOGIN, SMTP_PASSWORD)
-            server.send_message(msg)
+            server.send_message(msyour-brevog)
         return True
     except Exception as e:
         logger.error(f"Email Error: {e}")
