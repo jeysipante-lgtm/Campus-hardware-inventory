@@ -18,13 +18,12 @@ app.secret_key = os.getenv("SECRET_KEY", os.urandom(24))
 # ==========================================
 # DATABASE CONFIGURATION
 # ==========================================
-# Gagamitin ang DATABASE_URL mula sa Environment Variables kung nakaset sa Render, o ang Supabase connection string
 raw_db_url = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 )
 
-# Pilitin na gamitin ang psycopg2 dialect at magdagdag ng SSL settings para sa Supabase Pooler
+# Pilitin na gamitin ang psycopg2 at magdagdag ng SSL settings para sa Supabase Pooler
 if raw_db_url.startswith("postgresql://"):
     raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
@@ -50,14 +49,21 @@ with app.app_context():
 # BREVO SMTP CONFIGURATION & HELPER
 # ==========================================
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
-SMTP_LOGIN = os.getenv("SMTP_LOGIN", "jeysipante@gmail.com")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "Jc@221133")
+
+# Brevo SMTP Login Name mula sa dashboard
+SMTP_LOGIN = os.getenv("SMTP_LOGIN", "bbf8b0001@smtp-brevo.com")
+
+# Verified Brevo Sender Email Address
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "jeysipante@gmail.com")
+
+# Kukunin ang key mula sa Render Environment Variables (Ligtas sa GitHub Push Protection)
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 def send_otp_email(receiver_email, otp, intent):
     """Sends a 6-digit OTP using Brevo SMTP with multi-port fallback."""
     msg = MIMEText(f"Your {intent} One-Time Password (OTP) is: {otp}\n\nPlease enter this code to proceed. Do not share this code with anyone.")
     msg['Subject'] = f"Laboratory System - {intent} OTP"
-    msg['From'] = SMTP_LOGIN
+    msg['From'] = SENDER_EMAIL
     msg['To'] = receiver_email
     
     ports_to_try = [587, 2525, 25]
