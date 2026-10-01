@@ -18,50 +18,62 @@ app.secret_key = os.getenv("SECRET_KEY", os.urandom(24))
 # ==========================================
 # DATABASE CONFIGURATION
 # ==========================================
-# Gagamitin ang DATABASE_URL mula sa Environment Variables kung nasa Render, o ang Supabase URL
+# Gagamitin ang DATABASE_URL mula sa Environment Variables kung nakaset sa Render, o ang Supabase connection string
 raw_db_url = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 )
 
-# Siguraduhing psycopg2 dialect ang gagamitin ng SQLAlchemy
+# Pilitin na gamitin ang psycopg2 dialect at magdagdag ng SSL settings para sa Supabase Pooler
 if raw_db_url.startswith("postgresql://"):
     raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
+if "?" not in raw_db_url:
+    raw_db_url += "?sslmode=require"
+
 app.config['SQLALCHEMY_DATABASE_URI'] = raw_db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "connect_args": {"connect_timeout": 10}
+}
 
 db.init_app(app)
 
 with app.app_context():
-    init_db()
+    try:
+        init_db()
+    except Exception as e:
+        logger.error(f"Database Initialization Error: {e}")
 
 
 # ==========================================
 # BREVO SMTP CONFIGURATION & HELPER
 # ==========================================
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))  # Port 587 gamit ang TLS
-
 SMTP_LOGIN = os.getenv("SMTP_LOGIN", "jeysipante@gmail.com")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "Jc@221133")
 
 def send_otp_email(receiver_email, otp, intent):
-    """Sends a 6-digit OTP using Brevo SMTP."""
+    """Sends a 6-digit OTP using Brevo SMTP with multi-port fallback."""
     msg = MIMEText(f"Your {intent} One-Time Password (OTP) is: {otp}\n\nPlease enter this code to proceed. Do not share this code with anyone.")
     msg['Subject'] = f"Laboratory System - {intent} OTP"
-    msg['From'] = SMTP_LOGIN  # Verified Brevo sender email
+    msg['From'] = SMTP_LOGIN
     msg['To'] = receiver_email
     
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_LOGIN, SMTP_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception as e:
-        logger.error(f"Email Error: {e}")
-        return False
+    ports_to_try = [587, 2525, 25]
+    
+    for port in ports_to_try:
+        try:
+            with smtplib.SMTP(SMTP_SERVER, port, timeout=10) as server:
+                server.starttls()
+                server.login(SMTP_LOGIN, SMTP_PASSWORD)
+                server.send_message(msg)
+            logger.info(f"OTP email sent successfully using port {port}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send email via port {port}: {e}")
+            
+    return False
 
 
 # ==========================================
