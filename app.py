@@ -13,12 +13,22 @@ from LaboratorySystem_Web_Lab1 import (
 )
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv("SECRET_KEY", os.urandom(24))
 
 # ==========================================
 # DATABASE CONFIGURATION
 # ==========================================
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres'
+# Gagamitin ang DATABASE_URL mula sa Environment Variables kung nasa Render, o ang Supabase URL
+raw_db_url = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
+)
+
+# Siguraduhing psycopg2 dialect ang gagamitin ng SQLAlchemy
+if raw_db_url.startswith("postgresql://"):
+    raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = raw_db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
@@ -30,25 +40,24 @@ with app.app_context():
 # ==========================================
 # BREVO SMTP CONFIGURATION & HELPER
 # ==========================================
-SMTP_SERVER = "smtp-relay.brevo.com"
-SMTP_PORT = 2525
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))  # Port 587 gamit ang TLS
 
-# TODO: Palitan ito ng iyong totoong Brevo SMTP Login at Master Password!
-SMTP_LOGIN = "-jeysipante@gmail.com"
-SMTP_PASSWORD = "Jc@221133"
+SMTP_LOGIN = os.getenv("SMTP_LOGIN", "jeysipante@gmail.com")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "Jc@221133")
 
 def send_otp_email(receiver_email, otp, intent):
     """Sends a 6-digit OTP using Brevo SMTP."""
     msg = MIMEText(f"Your {intent} One-Time Password (OTP) is: {otp}\n\nPlease enter this code to proceed. Do not share this code with anyone.")
     msg['Subject'] = f"Laboratory System - {intent} OTP"
-    msg['From'] = SMTP_LOGIN  # Gamitin ang iyong verified Brevo email
+    msg['From'] = SMTP_LOGIN  # Verified Brevo sender email
     msg['To'] = receiver_email
     
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_LOGIN, SMTP_PASSWORD)
-            server.send_message(msyour-brevog)
+            server.send_message(msg)
         return True
     except Exception as e:
         logger.error(f"Email Error: {e}")
