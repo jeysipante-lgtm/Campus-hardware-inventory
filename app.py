@@ -1,4 +1,7 @@
 import os
+import smtplib
+import random
+from email.mime.text import MIMEText
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
 from LaboratorySystem_Web_Lab1 import (
     db,
@@ -22,6 +25,34 @@ db.init_app(app)
 
 with app.app_context():
     init_db()
+
+
+# ==========================================
+# BREVO SMTP CONFIGURATION & HELPER
+# ==========================================
+SMTP_SERVER = "smtp-relay.brevo.com"
+SMTP_PORT = 2525
+
+# TODO: Palitan ito ng iyong totoong Brevo SMTP Login at Master Password!
+SMTP_LOGIN = "your-brevo-email@example.com"
+SMTP_PASSWORD = "your-brevo-master-password"
+
+def send_otp_email(receiver_email, otp, intent):
+    """Sends a 6-digit OTP using Brevo SMTP."""
+    msg = MIMEText(f"Your {intent} One-Time Password (OTP) is: {otp}\n\nPlease enter this code to proceed. Do not share this code with anyone.")
+    msg['Subject'] = f"Laboratory System - {intent} OTP"
+    msg['From'] = SMTP_LOGIN  # Gamitin ang iyong verified Brevo email
+    msg['To'] = receiver_email
+    
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_LOGIN, SMTP_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        logger.error(f"Email Error: {e}")
+        return False
 
 
 # ==========================================
@@ -52,7 +83,7 @@ def admin_required(f):
 
 
 # ==========================================
-# ROUTES
+# AUTH & OTP ROUTES
 # ==========================================
 
 @app.route("/")
@@ -81,11 +112,6 @@ def login():
             flash(msg, "success")
             return redirect(url_for('dashboard'))
         else:
-            is_locked = (msg == "ACCOUNT_LOCKED")
-            if is_locked:
-                flash("Your account has been locked due to too many failed attempts.", "danger")
-                return render_template("login.html", locked=True, locked_username=username)
-
             flash(msg, "danger")
             return render_template("login.html")
 
@@ -94,51 +120,114 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        student_number = request.form.get("student_number", "").strip()
-        email = request.form.get("email", "").strip()
-        password = request.form.get("password", "")
-        role = request.form.get("role", "USER").strip()
+    if request.method == "GET":
+        return render_template("login.html", active_tab="register")
+        
+    username = request.form.get("username", "").strip()
+    student_number = request.form.get("student_number", "").strip()
+    email = request.form.get("email", "").strip()
+    password = request.form.get("password", "").strip()
+    role = request.form.get("role", "USER").strip().upper()
 
-        ok, msg = AuthController.register(
-            username=username,
-            email=email,
-            password=password,
-            student_number=student_number,
-            role=role
-        )
+    if not username or not email or not password:
+        flash("All registration fields are required.", "danger")
+        return redirect(url_for("register"))
 
-        if ok:
-            flash(msg, "success")
-            return redirect(url_for('login'))
-        else:
-            flash(msg, "danger")
-            return render_template("login.html", active_tab="register")
+    # Generate OTP and save pending data to session
+    otp = str(random.randint(100000, 999999))
+    session['pending_user'] = {
+        'username': username,
+        'student_number': student_number,
+        'email': email,
+        'password': password,
+        'role': role,
+        'otp': otp
+    }
 
-    return render_template("login.html", active_tab="register")
+    if send_otp_email(email, otp, intent="Account Registration"):
+        flash("We sent a 6-digit code to your email. Please verify.", "info")
+        return redirect(url_for("verify_otp", action="register"))
+    else:
+        flash("Failed to send OTP email. Please check your email/SMTP setup.", "danger")
+        return redirect(url_for("register"))
 
 
 @app.route("/reset_password", methods=["GET", "POST"])
 @app.route("/reset_request", methods=["GET", "POST"])
 def reset_password():
+    if request.method == "GET":
+        return render_template("reset.html")
+
+    username = request.form.get("username", "").strip()
+    email = request.form.get("email", "").strip()
+    new_password = request.form.get("new_password", "").strip()
+    confirm_password = request.form.get("confirm_password", "").strip()
+
+    if not username or not email or not new_password or not confirm_password:
+        flash("All reset fields are required.", "danger")
+        return redirect(url_for("reset_password"))
+
+    if new_password != confirm_password:
+        flash("New passwords do not match.", "danger")
+        return redirect(url_for("reset_password"))
+
+    # Generate OTP and save pending reset to session
+    otp = str(random.randint(100000, 999999))
+    session['pending_reset'] = {
+        'username': username,
+        'email': email,
+        'new_password': new_password,
+        'confirm_password': confirm_password,
+        'otp': otp
+    }
+
+    if send_otp_email(email, otp, intent="Password Reset"):
+        flash("We sent a 6-digit code to your email. Please verify.", "info")
+        return redirect(url_for("verify_otp", action="reset"))
+    else:
+        flash("Failed to send OTP email. Please try again.", "danger")
+        return redirect(url_for("reset_password"))
+
+
+@app.route("/verify-otp/<action>", methods=["GET", "POST"])
+def verify_otp(action):
+    session_key = 'pending_user' if action == "register" else 'pending_reset'
+
+    if session_key not in session:
+        flash("Session expired. Please try again.", "warning")
+        return redirect(url_for("login"))
+
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        email = request.form.get("email", "").strip()
-        new_password = request.form.get("new_password", "")
-        confirm_password = request.form.get("confirm_password", "")
+        user_otp = request.form.get("otp_code", "").strip()
+        data = session[session_key]
 
-        ok, msg = AuthController.request_password_reset(
-            username, email, new_password, confirm_password
-        )
+        if user_otp == data['otp']:
+            if action == "register":
+                ok, msg = AuthController.register(
+                    username=data['username'],
+                    email=data['email'],
+                    password=data['password'],
+                    student_number=data.get('student_number', ''),
+                    role=data['role']
+                )
+                session.pop(session_key, None)
+                flash("Account successfully verified and created!", "success" if ok else "warning")
+                return redirect(url_for("login"))
 
-        if ok:
-            flash(msg, "info")
-            return redirect(url_for('login'))
+            elif action == "reset":
+                ok, msg = AuthController.request_password_reset(
+                    data['username'],
+                    data['email'],
+                    data['new_password'],
+                    data['confirm_password']
+                )
+                session.pop(session_key, None)
+                flash("Email verified! Password updated successfully.", "success" if ok else "danger")
+                return redirect(url_for("login"))
         else:
-            flash(msg, "danger")
+            flash("Invalid OTP code. Try again.", "danger")
 
-    return render_template("reset.html")
+    return render_template("otp_verify.html", action_url=url_for('verify_otp', action=action))
 
 
 @app.route("/logout")
@@ -147,6 +236,10 @@ def logout():
     flash("You have been logged out successfully.", "info")
     return redirect(url_for('login'))
 
+
+# ==========================================
+# DASHBOARD & INVENTORY ROUTES
+# ==========================================
 
 @app.route("/dashboard")
 @login_required
@@ -207,10 +300,6 @@ def delete_items():
     return redirect(url_for('dashboard'))
 
 
-# ==========================================
-# BORROW & RETURN ROUTES
-# ==========================================
-
 @app.route("/borrow_item", methods=["POST"])
 @login_required
 def borrow_item():
@@ -234,10 +323,6 @@ def return_item(log_id):
     flash(msg, "success" if ok else "danger")
     return redirect(url_for('dashboard'))
 
-
-# ==========================================
-# ADMIN APPROVAL ROUTES (MATCHES HTML URL_FOR)
-# ==========================================
 
 @app.route("/approve_borrow/<int:log_id>")
 @admin_required
@@ -267,23 +352,6 @@ def approve_return(log_id):
 @admin_required
 def reject_return(log_id):
     ok, msg = AdminController.reject_return(log_id)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/process_resets", methods=["POST"])
-@admin_required
-def process_resets():
-    request_ids = request.form.getlist("selected_resets")
-    action = request.form.get("action")
-
-    if action == "approve":
-        ok, msg = AdminController.approve_resets(request_ids)
-    elif action == "reject":
-        ok, msg = AdminController.reject_resets(request_ids)
-    else:
-        ok, msg = False, "Invalid action."
-
     flash(msg, "success" if ok else "danger")
     return redirect(url_for('dashboard'))
 
