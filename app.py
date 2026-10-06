@@ -1,401 +1,209 @@
 import os
-import smtplib
 import random
+import smtplib
 from email.mime.text import MIMEText
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
-from LaboratorySystem_Web_Lab1 import (
-    db,
-    init_db,
-    logger,
-    AuthController,
-    InventoryController,
-    AdminController
-)
+from email.mime.multipart import MIMEMultipart
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", os.urandom(24))
 
-# ==========================================
-# DATABASE CONFIGURATION
-# ==========================================
-raw_db_url = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres.iclqeezqkjdmmhonnyhw:Jc%4022113312@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
-)
+# Security Configs
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# Pilitin na gamitin ang psycopg2 at magdagdag ng SSL settings para sa Supabase Pooler
-if raw_db_url.startswith("postgresql://"):
-    raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+# Mail Configurations (Switched to Gmail SMTP)
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_LOGIN = os.getenv('SMTP_LOGIN')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
+SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 
-if "?" not in raw_db_url:
-    raw_db_url += "?sslmode=require"
+def send_otp_email(to_email, otp_code):
+    """Sends OTP using Gmail SMTP with multi-port fallback"""
+    subject = "Your Verification Code - Campus Hardware Inventory"
+    body = f"Your One-Time Password (OTP) for account verification is: {otp_code}\n\nThis code will expire shortly."
 
-app.config['SQLALCHEMY_DATABASE_URI'] = raw_db_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "connect_args": {"connect_timeout": 10}
-}
-
-db.init_app(app)
-
-with app.app_context():
-    try:
-        init_db()
-    except Exception as e:
-        logger.error(f"Database Initialization Error: {e}")
-
-
-# ==========================================
-# BREVO SMTP CONFIGURATION & HELPER
-# ==========================================
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
-
-# Brevo SMTP Login Name mula sa dashboard
-SMTP_LOGIN = os.getenv("SMTP_LOGIN", "bbf8b0001@smtp-brevo.com")
-
-# Verified Brevo Sender Email Address
-SENDER_EMAIL = os.getenv("SENDER_EMAIL", "jeysipante@gmail.com")
-
-# Kukunin ang key mula sa Render Environment Variables (Ligtas sa GitHub Push Protection)
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-
-def send_otp_email(receiver_email, otp, intent):
-    """Sends a 6-digit OTP using Brevo SMTP with multi-port fallback."""
-    msg = MIMEText(f"Your {intent} One-Time Password (OTP) is: {otp}\n\nPlease enter this code to proceed. Do not share this code with anyone.")
-    msg['Subject'] = f"Laboratory System - {intent} OTP"
+    msg = MIMEMultipart()
     msg['From'] = SENDER_EMAIL
-    msg['To'] = receiver_email
-    
-    ports_to_try = [2525, 587, 25]
-    
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    ports_to_try = [587, 2525, 25]
+    email_sent = False
+
     for port in ports_to_try:
         try:
-            with smtplib.SMTP(SMTP_SERVER, port, timeout=10) as server:
-                server.starttls()
-                server.login(SMTP_LOGIN, SMTP_PASSWORD)
-                server.send_message(msg)
-            logger.info(f"OTP email sent successfully using port {port}")
-            return True
+            print(f"Attempting to send email via {SMTP_SERVER}:{port}...")
+            server = smtplib.SMTP(SMTP_SERVER, port, timeout=10)
+            server.starttls()
+            server.login(SMTP_LOGIN, SMTP_PASSWORD)
+            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+            server.quit()
+            print(f"Successfully sent OTP email via port {port}")
+            email_sent = True
+            break
         except Exception as e:
-            logger.error(f"Failed to send email via port {port}: {e}")
-            
-    return False
+            print(f"Failed to send email via port {port}: {e}")
 
+    return email_sent
 
-# ==========================================
-# HELPER DECORATORS
-# ==========================================
-
-def login_required(f):
-    def wrapped(*args, **kwargs):
-        if 'username' not in session:
-            flash("Please log in first to access this page.", "warning")
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    wrapped.__name__ = f.__name__
-    return wrapped
-
-
-def admin_required(f):
-    def wrapped(*args, **kwargs):
-        if 'username' not in session:
-            flash("Please log in first.", "warning")
-            return redirect(url_for('login'))
-        if session.get('role') != 'ADMIN':
-            flash("Unauthorized access! Admin rights required.", "danger")
-            return redirect(url_for('dashboard'))
-        return f(*args, **kwargs)
-    wrapped.__name__ = f.__name__
-    return wrapped
-
-
-# ==========================================
-# AUTH & OTP ROUTES
-# ==========================================
-
-@app.route("/")
-def index():
-    if 'username' in session:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-
-        if not username or not password:
-            flash("Username and password are required.", "danger")
-            return render_template("login.html")
-
-        ok, msg, user_data = AuthController.login(username, password)
-
-        if ok:
-            session['username'] = user_data['username']
-            session['role'] = user_data['role']
-            session['student_number'] = user_data.get('student_number', '')
-            flash(msg, "success")
-            return redirect(url_for('dashboard'))
-        else:
-            flash(msg, "danger")
-            return render_template("login.html")
-
-    return render_template("login.html")
-
-
-@app.route("/register", methods=["GET", "POST"])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
-    if request.method == "GET":
-        return render_template("login.html", active_tab="register")
+    if request.method == 'POST':
+        username = request.form.get('username')
+        student_number = request.form.get('student_number')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        role = request.form.get('role')
+
+        # Generate 6-digit OTP
+        otp_code = str(random.randint(100000, 999import os
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+
+app = Flask(__name__)
+
+# Security Configs
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
+
+# Mail Configurations (Switched to Gmail SMTP)
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_LOGIN = os.getenv('SMTP_LOGIN')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
+SENDER_EMAIL = os.getenv('SENDER_EMAIL')
+
+def send_otp_email(to_email, otp_code):
+    """Sends OTP using Gmail SMTP with multi-port fallback"""
+    subject = "Your Verification Code - Campus Hardware Inventory"
+    body = f"Your One-Time Password (OTP) for account verification is: {otp_code}\n\nThis code will expire shortly."
+
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    ports_to_try = [587, 2525, 25]
+    email_sent = False
+
+    for port in ports_to_try:
+        try:
+            print(f"Attempting to send email via {SMTP_SERVER}:{port}...")
+            server = smtplib.SMTP(SMTP_SERVER, port, timeout=10)
+            server.starttls()
+            server.login(SMTP_LOGIN, SMTP_PASSWORD)
+            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+            server.quit()
+            print(f"Successfully sent OTP email via port {port}")
+            email_sent = True
+            break
+        except Exception as e:
+            print(f"Failed to send email via port {port}: {e}")
+
+    return email_sent
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        student_number = request.form.get('student_number')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        role = request.form.get('role')
+
+        # Generate 6-digit OTP
+        otp_code = str(random.randint(100000, 999999))
         
-    username = request.form.get("username", "").strip()
-    student_number = request.form.get("student_number", "").strip()
-    email = request.form.get("email", "").strip()
-    password = request.form.get("password", "").strip()
-    role = request.form.get("role", "USER").strip().upper()
+        # Save registration data temporarily in session
+        session['pending_user'] = {
+            'username': username,
+            'student_number': student_number,
+            'email': email,
+            'password': password,
+            'role': role,
+            'otp': otp_code
+        }
 
-    if not username or not email or not password:
-        flash("All registration fields are required.", "danger")
-        return redirect(url_for("register"))
-
-    # Generate OTP and save pending data to session
-    otp = str(random.randint(100000, 999999))
-    session['pending_user'] = {
-        'username': username,
-        'student_number': student_number,
-        'email': email,
-        'password': password,
-        'role': role,
-        'otp': otp
-    }
-
-    if send_otp_email(email, otp, intent="Account Registration"):
-        flash("We sent a 6-digit code to your email. Please verify.", "info")
-        return redirect(url_for("verify_otp", action="register"))
-    else:
-        flash("Failed to send OTP email. Please check your email/SMTP setup.", "danger")
-        return redirect(url_for("register"))
-
-
-@app.route("/reset_password", methods=["GET", "POST"])
-@app.route("/reset_request", methods=["GET", "POST"])
-def reset_password():
-    if request.method == "GET":
-        return render_template("reset.html")
-
-    username = request.form.get("username", "").strip()
-    email = request.form.get("email", "").strip()
-    new_password = request.form.get("new_password", "").strip()
-    confirm_password = request.form.get("confirm_password", "").strip()
-
-    if not username or not email or not new_password or not confirm_password:
-        flash("All reset fields are required.", "danger")
-        return redirect(url_for("reset_password"))
-
-    if new_password != confirm_password:
-        flash("New passwords do not match.", "danger")
-        return redirect(url_for("reset_password"))
-
-    # Generate OTP and save pending reset to session
-    otp = str(random.randint(100000, 999999))
-    session['pending_reset'] = {
-        'username': username,
-        'email': email,
-        'new_password': new_password,
-        'confirm_password': confirm_password,
-        'otp': otp
-    }
-
-    if send_otp_email(email, otp, intent="Password Reset"):
-        flash("We sent a 6-digit code to your email. Please verify.", "info")
-        return redirect(url_for("verify_otp", action="reset"))
-    else:
-        flash("Failed to send OTP email. Please try again.", "danger")
-        return redirect(url_for("reset_password"))
-
-
-@app.route("/verify-otp/<action>", methods=["GET", "POST"])
-def verify_otp(action):
-    session_key = 'pending_user' if action == "register" else 'pending_reset'
-
-    if session_key not in session:
-        flash("Session expired. Please try again.", "warning")
-        return redirect(url_for("login"))
-
-    if request.method == "POST":
-        user_otp = request.form.get("otp_code", "").strip()
-        data = session[session_key]
-
-        if user_otp == data['otp']:
-            if action == "register":
-                ok, msg = AuthController.register(
-                    username=data['username'],
-                    email=data['email'],
-                    password=data['password'],
-                    student_number=data.get('student_number', ''),
-                    role=data['role']
-                )
-                session.pop(session_key, None)
-                flash("Account successfully verified and created!", "success" if ok else "warning")
-                return redirect(url_for("login"))
-
-            elif action == "reset":
-                ok, msg = AuthController.request_password_reset(
-                    data['username'],
-                    data['email'],
-                    data['new_password'],
-                    data['confirm_password']
-                )
-                session.pop(session_key, None)
-                flash("Email verified! Password updated successfully.", "success" if ok else "danger")
-                return redirect(url_for("login"))
+        # Send OTP Email
+        if send_otp_email(email, otp_code):
+            flash('OTP code sent to your email address. Please verify.', 'info')
+            return redirect(url_for('verify_otp_register'))
         else:
-            flash("Invalid OTP code. Try again.", "danger")
+            flash('Failed to send OTP email. Please check your email/SMTP setup.', 'danger')
+            return redirect(url_for('register'))
 
-    return render_template("otp_verify.html", action_url=url_for('verify_otp', action=action))
+    return render_template('register.html')
 
+@app.route('/verify-otp/register', methods=['GET', 'POST'])
+def verify_otp_register():
+    pending_user = session.get('pending_user')
+    if not pending_user:
+        flash('Session expired. Please register again.', 'warning')
+        return redirect(url_for('register'))
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    flash("You have been logged out successfully.", "info")
-    return redirect(url_for('login'))
+    if request.method == 'POST':
+        entered_otp = request.form.get('otp_code')
+        if entered_otp == pending_user['otp']:
+            # OTP match! Save user to Database here
+            session.pop('pending_user', None)
+            flash('Registration successful! You can now login.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Invalid OTP code. Please try again.', 'danger')
 
+    return render_template('otp_verify.html', action_url=url_for('verify_otp_register'))
 
-# ==========================================
-# DASHBOARD & INVENTORY ROUTES
-# ==========================================
+@app.route('/login')
+def login():
+    return render_template('login.html')
 
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    search = request.args.get("search", "").strip()
-    category = request.args.get("category", "ALL")
+if __name__ == '__main__':
+    app.run(debug=True)999))
+        
+        # Save registration data temporarily in session
+        session['pending_user'] = {
+            'username': username,
+            'student_number': student_number,
+            'email': email,
+            'password': password,
+            'role': role,
+            'otp': otp_code
+        }
 
-    items = InventoryController.fetch_all(search_name=search, category=category)
-    categories = InventoryController.get_categories()
-    total_stocks = InventoryController.get_total_stocks()
+        # Send OTP Email
+        if send_otp_email(email, otp_code):
+            flash('OTP code sent to your email address. Please verify.', 'info')
+            return redirect(url_for('verify_otp_register'))
+        else:
+            flash('Failed to send OTP email. Please check your email/SMTP setup.', 'danger')
+            return redirect(url_for('register'))
 
-    borrows = []
-    pending_resets = []
-    pending_borrows = []
-    pending_returns = []
+    return render_template('register.html')
 
-    if session.get("role") == "ADMIN":
-        borrows = InventoryController.fetch_borrows()
-        pending_resets = AdminController.fetch_pending_resets()
-        pending_borrows = AdminController.fetch_pending_borrows()
-        pending_returns = AdminController.fetch_pending_returns()
-    else:
-        borrows = InventoryController.fetch_borrows(username=session["username"])
+@app.route('/verify-otp/register', methods=['GET', 'POST'])
+def verify_otp_register():
+    pending_user = session.get('pending_user')
+    if not pending_user:
+        flash('Session expired. Please register again.', 'warning')
+        return redirect(url_for('register'))
 
-    return render_template(
-        "dashboard.html",
-        items=items,
-        categories=categories,
-        total_stocks=total_stocks,
-        borrows=borrows,
-        pending_resets=pending_resets,
-        pending_borrows=pending_borrows,
-        pending_returns=pending_returns,
-        search=search,
-        selected_category=category
-    )
+    if request.method == 'POST':
+        entered_otp = request.form.get('otp_code')
+        if entered_otp == pending_user['otp']:
+            # OTP match! Save user to Database here
+            session.pop('pending_user', None)
+            flash('Registration successful! You can now login.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Invalid OTP code. Please try again.', 'danger')
 
+    return render_template('otp_verify.html', action_url=url_for('verify_otp_register'))
 
-@app.route("/add_item", methods=["POST"])
-@admin_required
-def add_item():
-    name = request.form.get("item_name", "").strip()
-    category = request.form.get("category", "").strip()
-    quantity = request.form.get("quantity", "0")
-    price = request.form.get("unit_price", "0.0")
+@app.route('/login')
+def login():
+    return render_template('login.html')
 
-    ok, msg = InventoryController.add_item(name, category, quantity, price)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/delete_items", methods=["POST"])
-@admin_required
-def delete_items():
-    item_ids = request.form.getlist("selected_items")
-    ok, msg = InventoryController.delete_items(item_ids)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/borrow_item", methods=["POST"])
-@login_required
-def borrow_item():
-    student_number = request.form.get("student_number", "").strip()
-    item_id = request.form.get("item_id")
-    quantity = int(request.form.get("quantity", 1))
-
-    session['student_number'] = student_number
-
-    ok, msg = InventoryController.request_borrow(
-        session["username"], student_number, item_id, quantity
-    )
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/return_item/<int:log_id>", methods=["POST"])
-@login_required
-def return_item(log_id):
-    ok, msg = InventoryController.request_return(session["username"], log_id)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/approve_borrow/<int:log_id>")
-@admin_required
-def approve_borrow(log_id):
-    ok, msg = AdminController.approve_borrow(log_id)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/reject_borrow/<int:log_id>")
-@admin_required
-def reject_borrow(log_id):
-    ok, msg = AdminController.reject_borrow(log_id)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/approve_return/<int:log_id>")
-@admin_required
-def approve_return(log_id):
-    ok, msg = AdminController.approve_return(log_id)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/reject_return/<int:log_id>")
-@admin_required
-def reject_return(log_id):
-    ok, msg = AdminController.reject_return(log_id)
-    flash(msg, "success" if ok else "danger")
-    return redirect(url_for('dashboard'))
-
-
-@app.route("/export_csv")
-@admin_required
-def export_csv():
-    csv_data = InventoryController.export_to_csv()
-    if csv_data:
-        return Response(
-            csv_data,
-            mimetype="text/csv",
-            headers={"Content-disposition": "attachment; filename=inventory_report.csv"}
-        )
-    flash("Failed to export CSV.", "danger")
-    return redirect(url_for('dashboard'))
-
-
-if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000, use_reloader=False)
+if __name__ == '__main__':
+    app.run(debug=True)
