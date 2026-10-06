@@ -10,14 +10,14 @@ app = Flask(__name__)
 # Security Configs
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# Mail Configurations (Switched to Gmail SMTP)
+# Mail Configurations
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_LOGIN = os.getenv('SMTP_LOGIN')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 
 def send_otp_email(to_email, otp_code):
-    """Sends OTP using Gmail SMTP with multi-port fallback"""
+    """Sends OTP using Gmail SSL Port 465 (Most reliable for Render)"""
     subject = "Your Verification Code - Campus Hardware Inventory"
     body = f"Your One-Time Password (OTP) for account verification is: {otp_code}\n\nThis code will expire shortly."
 
@@ -27,24 +27,25 @@ def send_otp_email(to_email, otp_code):
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
 
-    ports_to_try = [587, 2525, 25]
-    email_sent = False
-
-    for port in ports_to_try:
-        try:
-            print(f"Attempting to send email via {SMTP_SERVER}:{port}...")
-            server = smtplib.SMTP(SMTP_SERVER, port, timeout=10)
-            server.starttls()
+    try:
+        print(f"Connecting via SSL port 465 to {SMTP_SERVER}...")
+        with smtplib.SMTP_SSL(SMTP_SERVER, 465, timeout=10) as server:
             server.login(SMTP_LOGIN, SMTP_PASSWORD)
             server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-            server.quit()
-            print(f"Successfully sent OTP email via port {port}")
-            email_sent = True
-            break
-        except Exception as e:
-            print(f"Failed to send email via port {port}: {e}")
-
-    return email_sent
+        print("Successfully sent OTP email via SSL 465")
+        return True
+    except Exception as e:
+        print(f"SSL 465 failed: {e}. Trying TLS port 587 fallback...")
+        try:
+            with smtplib.SMTP(SMTP_SERVER, 587, timeout=10) as server:
+                server.starttls()
+                server.login(SMTP_LOGIN, SMTP_PASSWORD)
+                server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+            print("Successfully sent OTP email via TLS 587")
+            return True
+        except Exception as err:
+            print(f"Failed to send email: {err}")
+            return False
 
 @app.route('/')
 def index():
