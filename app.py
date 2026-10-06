@@ -46,6 +46,10 @@ def send_otp_email(to_email, otp_code):
 
     return email_sent
 
+@app.route('/')
+def index():
+    return redirect(url_for('register'))
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
