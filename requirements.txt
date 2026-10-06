@@ -1,8 +1,5 @@
 Flask
 Flask-SQLAlchemy
 gunicorn
-bcrypt
-pydantic
 werkzeug
-psycopg[binary]
 psycopg2-binary
