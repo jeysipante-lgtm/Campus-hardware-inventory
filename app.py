@@ -54,10 +54,10 @@ def index():
 def register():
     if request.method == 'POST':
         username = request.form.get('username')
-        student_number = request.form.get('student_number')
+        student_number = request.form.get('student_number', '')
         email = request.form.get('email')
         password = request.form.get('password')
-        role = request.form.get('role')
+        role = request.form.get('role', 'Student')
 
         # Generate 6-digit OTP
         otp_code = str(random.randint(100000, 999999))
