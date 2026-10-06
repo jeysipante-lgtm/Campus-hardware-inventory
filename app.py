@@ -66,7 +66,7 @@ def send_otp_email(receiver_email, otp, intent):
     msg['From'] = SENDER_EMAIL
     msg['To'] = receiver_email
     
-    ports_to_try = [587, 2525, 25]
+    ports_to_try = [2525, 587, 25]
     
     for port in ports_to_try:
         try:
