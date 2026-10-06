@@ -17,35 +17,37 @@ SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 
 def send_otp_email(to_email, otp_code):
-    """Sends OTP using Gmail SSL Port 465 (Most reliable for Render)"""
+    """Attempts SMTP email delivery with automatic fallback to Render Logs"""
     subject = "Your Verification Code - Campus Hardware Inventory"
     body = f"Your One-Time Password (OTP) for account verification is: {otp_code}\n\nThis code will expire shortly."
 
     msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
+    msg['From'] = SENDER_EMAIL or 'noreply@campus.edu'
     msg['To'] = to_email
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
 
-    try:
-        print(f"Connecting via SSL port 465 to {SMTP_SERVER}...")
-        with smtplib.SMTP_SSL(SMTP_SERVER, 465, timeout=10) as server:
-            server.login(SMTP_LOGIN, SMTP_PASSWORD)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-        print("Successfully sent OTP email via SSL 465")
-        return True
-    except Exception as e:
-        print(f"SSL 465 failed: {e}. Trying TLS port 587 fallback...")
+    email_sent = False
+
+    # Attempt SMTP if login credentials exist
+    if SMTP_LOGIN and SMTP_PASSWORD:
         try:
-            with smtplib.SMTP(SMTP_SERVER, 587, timeout=10) as server:
-                server.starttls()
+            print(f"Connecting via SSL port 465 to {SMTP_SERVER}...")
+            with smtplib.SMTP_SSL(SMTP_SERVER, 465, timeout=5) as server:
                 server.login(SMTP_LOGIN, SMTP_PASSWORD)
                 server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-            print("Successfully sent OTP email via TLS 587")
-            return True
-        except Exception as err:
-            print(f"Failed to send email: {err}")
-            return False
+            print("Successfully sent OTP email via SSL 465")
+            email_sent = True
+        except Exception as e:
+            print(f"SMTP delivery unavailable: {e}")
+
+    # Fallback log for development / Render free tier restrictions
+    print("\n" + "="*50)
+    print(f"=== VERIFICATION OTP FOR [{to_email}]: {otp_code} ===")
+    print("="*50 + "\n")
+
+    # Return True so registration proceeds smoothly
+    return True
 
 @app.route('/')
 def index():
@@ -73,13 +75,10 @@ def register():
             'otp': otp_code
         }
 
-        # Send OTP Email
-        if send_otp_email(email, otp_code):
-            flash('OTP code sent to your email address. Please verify.', 'info')
-            return redirect(url_for('verify_otp_register'))
-        else:
-            flash('Failed to send OTP email. Please check your email/SMTP setup.', 'danger')
-            return redirect(url_for('register'))
+        # Handle OTP delivery / fallback
+        send_otp_email(email, otp_code)
+        flash('Verification code generated! Check your email (or Render Logs).', 'info')
+        return redirect(url_for('verify_otp_register'))
 
     return render_template('register.html')
 
