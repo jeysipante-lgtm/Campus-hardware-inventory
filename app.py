@@ -56,7 +56,7 @@ def register():
         role = request.form.get('role')
 
         # Generate 6-digit OTP
-        otp_code = str(random.randint(100000, 999import os
+       otp_code = str(random.randint(100000, 999999))
 import random
 import smtplib
 from email.mime.text import MIMEText
