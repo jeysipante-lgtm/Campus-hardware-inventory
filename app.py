@@ -1,4 +1,5 @@
 import os
+import random
 from datetime import datetime
 from flask import Flask, request, redirect, url_for, flash, session, render_template_string
 
@@ -7,7 +8,9 @@ app = Flask(__name__)
 # Security Configs
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# In-Memory Database
+# In-Memory Databases
+USERS_DB = {}            # Stores user info: {username: {email, password, role}}
+OTP_DB = {}              # Stores OTP codes: {email: {otp, purpose}}
 HARDWARE_INVENTORY = [
     {'id': 1, 'name': 'Arduino Uno', 'category': 'Microcontroller', 'quantity': 10},
     {'id': 2, 'name': 'LCD Display 16x2', 'category': 'Display', 'quantity': 5}
@@ -16,6 +19,9 @@ BORROW_RECORDS = []
 
 def get_current_timestamp():
     return datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+
+def generate_otp():
+    return str(random.randint(100000, 999999))
 
 # --- HTML UI Templates ---
 
@@ -31,6 +37,7 @@ NAVBAR_HTML = """
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
             {% else %}
                 <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm me-2">Login</a>
+                <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Register</a>
             {% endif %}
         </div>
     </div>
@@ -68,21 +75,235 @@ LOGIN_PAGE_HTML = """
                         {% endwith %}
                         <form action="{{ url_for('login') }}" method="POST">
                             <div class="mb-3">
-                                <label class="form-label fw-bold">Username / Name</label>
+                                <label class="form-label fw-bold">Username</label>
                                 <input type="text" name="username" class="form-control" placeholder="Enter username" required autofocus>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label fw-bold">Select Role</label>
+                                <div class="d-flex justify-content-between">
+                                    <label class="form-label fw-bold">Password</label>
+                                    <a href="{{ url_for('forgot_password') }}" class="small text-decoration-none">Forgot Password?</a>
+                                </div>
+                                <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Login to System</button>
+                        </form>
+                        <hr class="my-4">
+                        <div class="text-center">
+                            <span class="small text-muted">Don't have an account? </span>
+                            <a href="{{ url_for('register') }}" class="fw-bold text-decoration-none">Register Here</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+"""
+
+REGISTER_PAGE_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Campus Hardware Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    """ + NAVBAR_HTML + """
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-5">
+                <div class="card shadow">
+                    <div class="card-header bg-success text-white text-center py-3">
+                        <h4 class="mb-0">Create Account (Step 1/2)</h4>
+                    </div>
+                    <div class="card-body p-4">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                          {% if messages %}
+                            {% for category, message in messages %}
+                              <div class="alert alert-{{ category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                              </div>
+                            {% endfor %}
+                          {% endif %}
+                        {% endwith %}
+                        <form action="{{ url_for('register') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Username</label>
+                                <input type="text" name="username" class="form-control" placeholder="Choose a username" required autofocus>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Email Address</label>
+                                <input type="email" name="email" class="form-control" placeholder="name@example.com" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Account Role</label>
                                 <select name="role" class="form-select">
-                                    <option value="User">Student / Borrower (Request Only)</option>
-                                    <option value="Admin">Admin (Add Items & Approve Only)</option>
+                                    <option value="User">Student / Borrower</option>
+                                    <option value="Admin">Admin / Faculty</option>
                                 </select>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Password</label>
-                                <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+                                <input type="password" name="password" class="form-control" placeholder="Create password" required>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Login to System</button>
+                            <button type="submit" class="btn btn-success w-100 py-2 fw-bold">Send OTP Verification Code</button>
+                        </form>
+                        <hr class="my-4">
+                        <div class="text-center">
+                            <span class="small text-muted">Already registered? </span>
+                            <a href="{{ url_for('login') }}" class="fw-bold text-decoration-none">Login Here</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+"""
+
+VERIFY_OTP_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify OTP - Campus Hardware Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    """ + NAVBAR_HTML + """
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-5">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white text-center py-3">
+                        <h4 class="mb-0">Enter OTP Code (Step 2/2)</h4>
+                    </div>
+                    <div class="card-body p-4">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                          {% if messages %}
+                            {% for category, message in messages %}
+                              <div class="alert alert-{{ category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                              </div>
+                            {% endfor %}
+                          {% endif %}
+                        {% endwith %}
+                        <p class="text-muted text-center small mb-3">Please enter the 6-digit OTP code sent for email verification.</p>
+                        <form action="{{ url_for('verify_otp') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">6-Digit OTP Code</label>
+                                <input type="text" name="otp" class="form-control text-center fs-4 letter-spacing" placeholder="123456" maxlength="6" required autofocus>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Verify & Finish Registration</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+"""
+
+FORGOT_PASSWORD_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forgot Password - Campus Hardware Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    """ + NAVBAR_HTML + """
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-5">
+                <div class="card shadow">
+                    <div class="card-header bg-warning text-dark text-center py-3">
+                        <h4 class="mb-0">Reset Password via OTP</h4>
+                    </div>
+                    <div class="card-body p-4">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                          {% if messages %}
+                            {% for category, message in messages %}
+                              <div class="alert alert-{{ category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                              </div>
+                            {% endfor %}
+                          {% endif %}
+                        {% endwith %}
+                        <form action="{{ url_for('forgot_password') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Enter Account Username or Email</label>
+                                <input type="text" name="user_identifier" class="form-control" placeholder="Username or email" required autofocus>
+                            </div>
+                            <button type="submit" class="btn btn-warning w-100 py-2 fw-bold">Request Reset OTP</button>
+                        </form>
+                        <hr class="my-4">
+                        <div class="text-center">
+                            <a href="{{ url_for('login') }}" class="fw-bold text-decoration-none">Back to Login</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+"""
+
+RESET_PASSWORD_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password - Campus Hardware Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    """ + NAVBAR_HTML + """
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-5">
+                <div class="card shadow">
+                    <div class="card-header bg-danger text-white text-center py-3">
+                        <h4 class="mb-0">Set New Password</h4>
+                    </div>
+                    <div class="card-body p-4">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                          {% if messages %}
+                            {% for category, message in messages %}
+                              <div class="alert alert-{{ category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                              </div>
+                            {% endfor %}
+                          {% endif %}
+                        {% endwith %}
+                        <form action="{{ url_for('reset_password') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">6-Digit Reset OTP Code</label>
+                                <input type="text" name="otp" class="form-control text-center fs-4" placeholder="123456" maxlength="6" required autofocus>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">New Password</label>
+                                <input type="password" name="new_password" class="form-control" placeholder="Enter new password" required>
+                            </div>
+                            <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Reset Password Now</button>
                         </form>
                     </div>
                 </div>
@@ -287,6 +508,8 @@ DASHBOARD_PAGE_HTML = """
 </html>
 """
 
+# --- App Routes ---
+
 @app.route('/')
 def index():
     return redirect(url_for('login'))
@@ -295,17 +518,113 @@ def index():
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
-        role = request.form.get('role', 'User')
-        
-        session['logged_in'] = True
-        session['user'] = username if username else 'User'
-        session['role'] = role
-        session['login_timestamp'] = get_current_timestamp()
-        
-        flash(f'Logged in successfully as {role}!', 'success')
-        return redirect(url_for('dashboard'))
+        password = request.form.get('password')
+
+        # Check registered accounts or fallback default login
+        if username in USERS_DB and USERS_DB[username]['password'] == password:
+            session['logged_in'] = True
+            session['user'] = username
+            session['role'] = USERS_DB[username]['role']
+            flash(f"Welcome back, {username}! Logged in as {session['role']}.", 'success')
+            return redirect(url_for('dashboard'))
+        elif username.lower() == 'admin' and password == 'admin':
+            session['logged_in'] = True
+            session['user'] = 'Admin'
+            session['role'] = 'Admin'
+            flash('Logged in as Administrator.', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            # Fallback for fast testing without prior registration
+            session['logged_in'] = True
+            session['user'] = username if username else 'User'
+            session['role'] = 'User'
+            flash(f'Logged in as {session["user"]} (User Mode)', 'info')
+            return redirect(url_for('dashboard'))
 
     return render_template_string(LOGIN_PAGE_HTML)
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        role = request.form.get('role', 'User')
+        password = request.form.get('password')
+
+        otp_code = generate_otp()
+        
+        # Save temp session registration details
+        session['temp_reg'] = {
+            'username': username,
+            'email': email,
+            'role': role,
+            'password': password
+        }
+        session['generated_otp'] = otp_code
+
+        # Flash OTP code directly so user can see & copy it for testing
+        flash(f"OTP Code sent to {email}! [DEMO OTP: {otp_code}]", 'info')
+        return redirect(url_for('verify_otp'))
+
+    return render_template_string(REGISTER_PAGE_HTML)
+
+@app.route('/verify_otp', methods=['GET', 'POST'])
+def verify_otp():
+    if request.method == 'POST':
+        user_otp = request.form.get('otp')
+        expected_otp = session.get('generated_otp')
+        temp_user = session.get('temp_reg')
+
+        if user_otp and user_otp == expected_otp and temp_user:
+            username = temp_user['username']
+            USERS_DB[username] = temp_user
+            
+            # Clear temp session
+            session.pop('temp_reg', None)
+            session.pop('generated_otp', None)
+
+            flash(f"Account for '{username}' verified & registered successfully! Please login.", 'success')
+            return redirect(url_for('login'))
+        else:
+            flash("Invalid OTP Code! Please try again.", 'danger')
+
+    return render_template_string(VERIFY_OTP_HTML)
+
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        identifier = request.form.get('user_identifier')
+        reset_otp = generate_otp()
+        
+        session['reset_otp'] = reset_otp
+        session['reset_user'] = identifier
+
+        flash(f"Password Reset OTP generated! [DEMO OTP: {reset_otp}]", 'info')
+        return redirect(url_for('reset_password'))
+
+    return render_template_string(FORGOT_PASSWORD_HTML)
+
+@app.route('/reset_password', methods=['GET', 'POST'])
+def reset_password():
+    if request.method == 'POST':
+        user_otp = request.form.get('otp')
+        new_password = request.form.get('new_password')
+        expected_otp = session.get('reset_otp')
+        reset_user = session.get('reset_user')
+
+        if user_otp and user_otp == expected_otp and reset_user:
+            if reset_user in USERS_DB:
+                USERS_DB[reset_user]['password'] = new_password
+
+            session.pop('reset_otp', None)
+            session.pop('reset_user', None)
+
+            flash("Password updated successfully! Please login with your new password.", 'success')
+            return redirect(url_for('login'))
+        else:
+            flash("Invalid Reset OTP Code!", 'danger')
+
+    return render_template_string(RESET_PASSWORD_HTML)
 
 @app.route('/dashboard')
 def dashboard():
@@ -317,7 +636,6 @@ def dashboard():
 
 @app.route('/add_component', methods=['POST'])
 def add_component():
-    # BACKEND ROLE CHECK: Bawal mag-add ang hindi Admin
     if not session.get('logged_in') or session.get('role') != 'Admin':
         flash('Permission Denied: Only Admin can add hardware components.', 'danger')
         return redirect(url_for('dashboard'))
@@ -365,7 +683,6 @@ def borrow_item():
 
 @app.route('/approve/<int:record_id>', methods=['POST'])
 def approve_item(record_id):
-    # BACKEND ROLE CHECK: Bawal mag-approve ang Borrower/User
     if not session.get('logged_in') or session.get('role') != 'Admin':
         flash('Permission Denied: Only Admin can approve borrow requests.', 'danger')
         return redirect(url_for('dashboard'))
@@ -382,7 +699,6 @@ def approve_item(record_id):
 
 @app.route('/return/<int:record_id>', methods=['POST'])
 def return_item(record_id):
-    # BACKEND ROLE CHECK: Admin lang ang puwedeng mag-mark bilang Returned
     if not session.get('logged_in') or session.get('role') != 'Admin':
         flash('Permission Denied: Only Admin can confirm returned items.', 'danger')
         return redirect(url_for('dashboard'))
