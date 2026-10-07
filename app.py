@@ -196,6 +196,7 @@ def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
             }
             payload = {
                 "sender": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL},
+                "replyTo": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL},
                 "to": [{"email": to_email}],
                 "subject": subject,
                 "textContent": body
