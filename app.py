@@ -8,9 +8,8 @@ app = Flask(__name__)
 # Security Configs
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# Mail Configurations (Brevo HTTP API)
-BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Ang API Key mo sa Brevo (xkeysib-...)
-SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'jeysipante@gmail.com')
+# Mail Configurations (Resend API)
+RESEND_API_KEY = os.getenv('RESEND_API_KEY')
 
 # --- Fallback HTML UI Templates ---
 
@@ -176,7 +175,7 @@ DASHBOARD_PAGE_HTML = """
 </html>
 """
 
-def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
+def send_otp_email_resend(to_email, otp_code, purpose="verification"):
     subject = f"Your {purpose.title()} OTP Code - Campus Hardware Inventory"
     body = (
         f"Hello,\n\n"
@@ -185,30 +184,28 @@ def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
         f"Best regards,\nCampus Hardware Inventory Team"
     )
 
-    if BREVO_API_KEY:
+    if RESEND_API_KEY:
         try:
-            print(f"Sending OTP via Brevo HTTPS API to {to_email}...")
-            url = "https://api.brevo.com/v3/smtp/email"
+            print(f"Sending OTP via Resend API to {to_email}...")
+            url = "https://api.resend.com/emails"
             headers = {
-                "accept": "application/json",
-                "api-key": BREVO_API_KEY.strip(),
-                "content-type": "application/json"
+                "Authorization": f"Bearer {RESEND_API_KEY.strip()}",
+                "Content-Type": "application/json"
             }
             payload = {
-                "sender": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL},
-                "replyTo": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL},
-                "to": [{"email": to_email}],
+                "from": "Campus Hardware Inventory <onboarding@resend.dev>",
+                "to": [to_email],
                 "subject": subject,
-                "textContent": body
+                "text": body
             }
             response = requests.post(url, json=payload, headers=headers, timeout=10)
             if response.status_code in [200, 201]:
-                print(f"SUCCESS: OTP sent via Brevo API to {to_email}!")
+                print(f"SUCCESS: OTP sent via Resend API to {to_email}!")
                 return True
             else:
-                print(f"ERROR: Brevo API returned status code {response.status_code}: {response.text}")
+                print(f"ERROR: Resend API returned status code {response.status_code}: {response.text}")
         except Exception as e:
-            print(f"ERROR: Brevo API request failed: {e}")
+            print(f"ERROR: Resend API request failed: {e}")
 
     # Fallback log sa Render console
     print("\n" + "="*50)
@@ -241,7 +238,7 @@ def register():
             'otp': otp_code
         }
 
-        send_otp_email_brevo(email, otp_code, purpose="account registration")
+        send_otp_email_resend(email, otp_code, purpose="account registration")
         flash('Verification code sent! Check your email or Render logs.', 'info')
         return redirect(url_for('verify_otp_register'))
 
@@ -282,7 +279,7 @@ def forgot_password():
             'otp': otp_code
         }
 
-        send_otp_email_brevo(email, otp_code, purpose="password reset")
+        send_otp_email_resend(email, otp_code, purpose="password reset")
         flash('Password reset OTP sent! Please check your email or Render logs.', 'info')
         return redirect(url_for('verify_otp_reset_password'))
 
