@@ -9,23 +9,25 @@ app = Flask(__name__)
 # Security Configs
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# --- BREVO API CONFIGURATION ---
-# Kukunin nito ang values mula sa Render Environment Variables
-BREVO_API_KEY = os.getenv('BREVO_API_KEY') 
-SENDER_EMAIL = os.getenv('SENDER_EMAIL')   # Email na verified sa Brevo account mo
+# --- SENDER.NET API CONFIGURATION ---
+# Kukunin mula sa Render Environment Variables:
+# 1. SENDER_API_TOKEN - Token mula sa Sender.net (Account Settings -> API Access Tokens)
+# 2. SENDER_EMAIL     - Verified Sender Email Address mo sa Sender.net
+SENDER_API_TOKEN = os.getenv('SENDER_API_TOKEN') 
+SENDER_EMAIL = os.getenv('SENDER_EMAIL')   
 
-def send_otp_via_brevo(receiver_email, otp_code, purpose="Registration"):
+def send_otp_via_sender(receiver_email, otp_code, purpose="Registration"):
     """
-    Sends an OTP email using Brevo REST API v3
+    Sends an OTP email using Sender.net REST API v2
     """
-    if not BREVO_API_KEY or not SENDER_EMAIL:
-        print("Error: Missing BREVO_API_KEY or SENDER_EMAIL in Environment Variables.")
+    if not SENDER_API_TOKEN or not SENDER_EMAIL:
+        print("Error: Missing SENDER_API_TOKEN or SENDER_EMAIL in Environment Variables.")
         return False
 
-    url = "https://api.brevo.com/v3/smtp/email"
+    url = "https://api.sender.net/v2/message/send"
     
     headers = {
-        "api-key": BREVO_API_KEY,
+        "Authorization": f"Bearer {SENDER_API_TOKEN}",
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
@@ -46,17 +48,13 @@ def send_otp_via_brevo(receiver_email, otp_code, purpose="Registration"):
     """
     
     payload = {
-        "sender": {
-            "name": "Campus Hardware System",
-            "email": SENDER_EMAIL
+        "email": receiver_email,
+        "from": {
+            "email": SENDER_EMAIL,
+            "name": "Campus Hardware System"
         },
-        "to": [
-            {
-                "email": receiver_email
-            }
-        ],
         "subject": f"Your OTP Code ({purpose}) - Campus Hardware Inventory",
-        "htmlContent": email_html
+        "html": email_html
     }
     
     try:
@@ -64,10 +62,10 @@ def send_otp_via_brevo(receiver_email, otp_code, purpose="Registration"):
         if response.status_code in [200, 201, 202]:
             return True
         else:
-            print(f"Brevo API Error [{response.status_code}]: {response.text}")
+            print(f"Sender.net API Error [{response.status_code}]: {response.text}")
             return False
     except Exception as e:
-        print(f"Exception sending via Brevo: {e}")
+        print(f"Exception sending via Sender.net: {e}")
         return False
 
 # In-Memory Databases
@@ -257,7 +255,7 @@ VERIFY_OTP_HTML = """
                             {% endfor %}
                           {% endif %}
                         {% endwith %}
-                        <p class="text-muted text-center small mb-3">Please check your email inbox for the 6-digit OTP code sent via Brevo.</p>
+                        <p class="text-muted text-center small mb-3">Please check your email inbox for the 6-digit OTP code sent via Sender.net.</p>
                         <form action="{{ url_for('verify_otp') }}" method="POST">
                             <div class="mb-3">
                                 <label class="form-label fw-bold">6-Digit OTP Code</label>
@@ -605,8 +603,8 @@ def register():
 
         otp_code = generate_otp()
         
-        # Send OTP via Brevo API
-        sent = send_otp_via_brevo(email, otp_code, purpose="Registration")
+        # Send OTP via Sender.net API
+        sent = send_otp_via_sender(email, otp_code, purpose="Registration")
         
         if sent:
             session['temp_reg'] = {
@@ -619,7 +617,7 @@ def register():
             flash(f"OTP Code sent successfully to {email}! Check your inbox.", 'success')
             return redirect(url_for('verify_otp'))
         else:
-            flash("Failed to send OTP email. Please check Brevo settings in Render environment variables.", 'danger')
+            flash("Failed to send OTP email. Please check Sender.net API settings in Render.", 'danger')
 
     return render_template_string(REGISTER_PAGE_HTML)
 
@@ -650,14 +648,14 @@ def forgot_password():
         email = request.form.get('email')
         reset_otp = generate_otp()
         
-        sent = send_otp_via_brevo(email, reset_otp, purpose="Password Reset")
+        sent = send_otp_via_sender(email, reset_otp, purpose="Password Reset")
         if sent:
             session['reset_otp'] = reset_otp
             session['reset_email'] = email
             flash(f"Password reset OTP sent to {email}! Please check your email.", 'info')
             return redirect(url_for('reset_password'))
         else:
-            flash("Failed to send reset OTP email. Check Brevo API Key and Sender Email in Render.", 'danger')
+            flash("Failed to send reset OTP email. Check Sender.net API Token and Sender Email in Render.", 'danger')
 
     return render_template_string(FORGOT_PASSWORD_HTML)
 
