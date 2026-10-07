@@ -185,22 +185,26 @@ def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
     body = f"Your One-Time Password (OTP) for {purpose} is: {otp_code}\n\nThis code will expire shortly."
 
     msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL or SMTP_LOGIN or 'noreply@campus.edu'
+    sender = SENDER_EMAIL or SMTP_LOGIN or 'noreply@campus.edu'
+    msg['From'] = sender
     msg['To'] = to_email
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
 
     if SMTP_LOGIN and SMTP_PASSWORD:
         try:
-            print(f"Connecting to SMTP Server ({SMTP_SERVER}:587)...")
-            with smtplib.SMTP(SMTP_SERVER, 587, timeout=10) as server:
-                server.starttls()
-                server.login(SMTP_LOGIN, SMTP_PASSWORD)
-                server.sendmail(SENDER_EMAIL or SMTP_LOGIN, to_email, msg.as_string())
-            print(f"Successfully sent {purpose} OTP email via Brevo SMTP!")
+            print(f"Connecting to SMTP Server ({SMTP_SERVER}:587) using login: {SMTP_LOGIN}...")
+            server = smtplib.SMTP(SMTP_SERVER, 587, timeout=10)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(SMTP_LOGIN, SMTP_PASSWORD)
+            server.sendmail(sender, to_email, msg.as_string())
+            server.quit()
+            print(f"SUCCESS: OTP email sent via SMTP to {to_email}!")
             return True
         except Exception as e:
-            print(f"SMTP delivery failed: {e}")
+            print(f"ERROR: SMTP delivery failed! Reason: {e}")
 
     print("\n" + "="*50)
     print(f"=== {purpose.upper()} OTP FOR [{to_email}]: {otp_code} ===")
