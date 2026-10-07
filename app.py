@@ -188,13 +188,16 @@ def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
 
     if SMTP_PASSWORD:
         try:
-            print(f"Sending OTP via Gmail SMTP SSL to {to_email}...")
+            print(f"Sending OTP via Gmail STARTTLS (Port 587) to {to_email}...")
             msg = MIMEText(body)
             msg['Subject'] = subject
             msg['From'] = SENDER_EMAIL
             msg['To'] = to_email
 
-            server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
+            # Connect to Gmail SMTP using Port 587 and STARTTLS
+            server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+            server.ehlo()
+            server.starttls()
             server.login(SENDER_EMAIL, SMTP_PASSWORD.strip())
             server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
             server.quit()
