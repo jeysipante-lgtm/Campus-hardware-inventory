@@ -9,7 +9,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
 # Mail Configurations (Brevo API)
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')  # Ang Brevo API / Master Key mo (xsmtpsib-...)
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')  # Ang Brevo Master Key / API Key mo (xsmtpsib-...)
 SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'jeysipante@gmail.com')
 
 # --- Fallback HTML UI Templates ---
@@ -190,7 +190,7 @@ def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
                 "content-type": "application/json"
             }
             payload = {
-                "sender": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL},
+                "sender": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL or "jeysipante@gmail.com"},
                 "to": [{"email": to_email}],
                 "subject": subject,
                 "textContent": body
