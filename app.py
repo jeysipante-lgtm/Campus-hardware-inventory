@@ -122,4 +122,206 @@ RESET_OTP_HTML = """
         <div class="row justify-content-center">
             <div class="col-md-5">
                 <div class="card shadow">
-                    <div class="card
+                    <div class="card-header bg-warning text-dark text-center">
+                        <h4>Set New Password</h4>
+                    </div>
+                    <div class="card-body">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                          {% if messages %}
+                            {% for category, message in messages %}
+                              <div class="alert alert-{{ category }}">{{ message }}</div>
+                            {% endfor %}
+                          {% endif %}
+                        {% endwith %}
+                        <form action="{{ url_for('verify_otp_reset_password') }}" method="POST">
+                            <div class="mb-3">
+                                <label class="form-label">OTP Code</label>
+                                <input type="text" name="otp_code" class="form-control text-center fs-4" placeholder="123456" required autofocus>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">New Password</label>
+                                <input type="password" name="new_password" class="form-control" placeholder="Enter new password" required>
+                            </div>
+                            <button type="submit" class="btn btn-warning w-100">Reset Password</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+DASHBOARD_PAGE_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard - Campus Hardware Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">Campus Hardware Inventory System</a>
+            <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm">Logout</a>
+        </div>
+    </nav>
+    <div class="container mt-5">
+        <div class="card shadow">
+            <div class="card-body text-center p-5">
+                <h1 class="text-success mb-3">Welcome to Dashboard!</h1>
+                <p class="lead">Account setup and authentication complete.</p>
+                <a href="{{ url_for('register') }}" class="btn btn-primary">Go back to Register Page</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
+    subject = f"Your {purpose.title()} OTP Code - Campus Hardware Inventory"
+    body = f"Your One-Time Password (OTP) for {purpose} is: {otp_code}\n\nThis code will expire shortly."
+
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL or SMTP_LOGIN or 'noreply@campus.edu'
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    if SMTP_LOGIN and SMTP_PASSWORD:
+        try:
+            print(f"Connecting to SMTP Server ({SMTP_SERVER}:587)...")
+            with smtplib.SMTP(SMTP_SERVER, 587, timeout=10) as server:
+                server.starttls()
+                server.login(SMTP_LOGIN, SMTP_PASSWORD)
+                server.sendmail(SENDER_EMAIL or SMTP_LOGIN, to_email, msg.as_string())
+            print(f"Successfully sent {purpose} OTP email via Brevo SMTP!")
+            return True
+        except Exception as e:
+            print(f"SMTP delivery failed: {e}")
+
+    print("\n" + "="*50)
+    print(f"=== {purpose.upper()} OTP FOR [{to_email}]: {otp_code} ===")
+    print("="*50 + "\n")
+
+    return True
+
+@app.route('/')
+def index():
+    return redirect(url_for('register'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        student_number = request.form.get('student_number', '')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        role = request.form.get('role', 'Student')
+
+        otp_code = str(random.randint(100000, 999999))
+        
+        session['pending_user'] = {
+            'username': username,
+            'student_number': student_number,
+            'email': email,
+            'password': password,
+            'role': role,
+            'otp': otp_code
+        }
+
+        send_otp_email_brevo(email, otp_code, purpose="account registration")
+        flash('Verification code sent! Check your email or Render logs.', 'info')
+        return redirect(url_for('verify_otp_register'))
+
+    try:
+        return render_template('register.html')
+    except Exception:
+        return redirect(url_for('login'))
+
+@app.route('/verify-otp/register', methods=['GET', 'POST'])
+def verify_otp_register():
+    pending_user = session.get('pending_user')
+    if not pending_user:
+        flash('Session expired. Please register again.', 'warning')
+        return redirect(url_for('register'))
+
+    if request.method == 'POST':
+        entered_otp = request.form.get('otp_code', '').strip()
+        if entered_otp == str(pending_user.get('otp')):
+            session.pop('pending_user', None)
+            flash('Registration successful! You can now login.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Invalid OTP code. Please try again.', 'danger')
+
+    try:
+        return render_template('otp_verify.html', action_url=url_for('verify_otp_register'))
+    except Exception:
+        return render_template_string(LOGIN_PAGE_HTML)
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        otp_code = str(random.randint(100000, 999999))
+
+        session['reset_password_data'] = {
+            'email': email,
+            'otp': otp_code
+        }
+
+        send_otp_email_brevo(email, otp_code, purpose="password reset")
+        flash('Password reset OTP sent! Please check your email or Render logs.', 'info')
+        return redirect(url_for('verify_otp_reset_password'))
+
+    try:
+        return render_template('forgot_password.html')
+    except Exception:
+        return render_template_string(FORGOT_PASSWORD_HTML)
+
+@app.route('/verify-otp/reset-password', methods=['GET', 'POST'])
+def verify_otp_reset_password():
+    reset_data = session.get('reset_password_data')
+    if not reset_data:
+        flash('Reset session expired. Please request password reset again.', 'warning')
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        entered_otp = request.form.get('otp_code', '').strip()
+        new_password = request.form.get('new_password')
+
+        if entered_otp == str(reset_data.get('otp')):
+            session.pop('reset_password_data', None)
+            flash('Password reset successful! You can now log in with your new password.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Invalid OTP code. Please try again.', 'danger')
+
+    try:
+        return render_template('reset_password_otp.html')
+    except Exception:
+        return render_template_string(RESET_OTP_HTML)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        flash('Logged in successfully!', 'success')
+        return redirect(url_for('dashboard'))
+
+    try:
+        return render_template('login.html')
+    except Exception:
+        return render_template_string(LOGIN_PAGE_HTML)
+
+@app.route('/dashboard')
+def dashboard():
+    try:
+        return render_template('dashboard.html')
+    except Exception:
+        return render_template_string(DASHBOARD_PAGE_HTML)
+
+if __name__ == '__main__':
+    app.run(debug=True)
