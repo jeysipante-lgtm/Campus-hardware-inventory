@@ -1,7 +1,6 @@
 import os
 import random
-import smtplib
-from email.mime.text import MIMEText
+import requests
 from flask import Flask, render_template, request, redirect, url_for, flash, session, render_template_string
 
 app = Flask(__name__)
@@ -9,8 +8,8 @@ app = Flask(__name__)
 # Security Configs
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# Mail Configurations (Gmail SMTP)
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')  # Ang 16-character Google App Password mo (walang spaces)
+# Mail Configurations (Brevo HTTP API)
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Ang API Key mo sa Brevo (xkeysib-...)
 SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'jeysipante@gmail.com')
 
 # --- Fallback HTML UI Templates ---
@@ -186,26 +185,29 @@ def send_otp_email_brevo(to_email, otp_code, purpose="verification"):
         f"Best regards,\nCampus Hardware Inventory Team"
     )
 
-    if SMTP_PASSWORD:
+    if BREVO_API_KEY:
         try:
-            print(f"Sending OTP via Gmail STARTTLS (Port 587) to {to_email}...")
-            msg = MIMEText(body)
-            msg['Subject'] = subject
-            msg['From'] = SENDER_EMAIL
-            msg['To'] = to_email
-
-            # Connect to Gmail SMTP using Port 587 and STARTTLS
-            server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
-            server.ehlo()
-            server.starttls()
-            server.login(SENDER_EMAIL, SMTP_PASSWORD.strip())
-            server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
-            server.quit()
-
-            print(f"SUCCESS: OTP sent via Gmail SMTP to {to_email}!")
-            return True
+            print(f"Sending OTP via Brevo HTTPS API to {to_email}...")
+            url = "https://api.brevo.com/v3/smtp/email"
+            headers = {
+                "accept": "application/json",
+                "api-key": BREVO_API_KEY.strip(),
+                "content-type": "application/json"
+            }
+            payload = {
+                "sender": {"name": "Campus Hardware Inventory", "email": SENDER_EMAIL},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "textContent": body
+            }
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            if response.status_code in [200, 201]:
+                print(f"SUCCESS: OTP sent via Brevo API to {to_email}!")
+                return True
+            else:
+                print(f"ERROR: Brevo API returned status code {response.status_code}: {response.text}")
         except Exception as e:
-            print(f"ERROR: Gmail SMTP failed: {e}")
+            print(f"ERROR: Brevo API request failed: {e}")
 
     # Fallback log sa Render console
     print("\n" + "="*50)
