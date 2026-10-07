@@ -31,6 +31,7 @@ NAVBAR_HTML = """
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
             {% else %}
                 <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm me-2">Login</a>
+                <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Register</a>
             {% endif %}
         </div>
     </div>
@@ -39,10 +40,8 @@ NAVBAR_HTML = """
 
 LOGIN_PAGE_HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Campus Hardware Inventory</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
@@ -53,46 +52,40 @@ LOGIN_PAGE_HTML = """
             <div class="col-md-5">
                 <div class="card shadow">
                     <div class="card-header bg-primary text-white text-center">
-                        <h4 class="mb-0">Admin Login</h4>
+                        <h4>Admin Login</h4>
                     </div>
-                    <div class="card-body p-4">
+                    <div class="card-body">
                         {% with messages = get_flashed_messages(with_categories=true) %}
                           {% if messages %}
                             {% for category, message in messages %}
-                              <div class="alert alert-{{ category }} alert-dismissible fade show">
-                                {{ message }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                              </div>
+                              <div class="alert alert-{{ category }}">{{ message }}</div>
                             {% endfor %}
                           {% endif %}
                         {% endwith %}
                         <form action="{{ url_for('login') }}" method="POST">
                             <div class="mb-3">
                                 <label class="form-label">Username or Email</label>
-                                <input type="text" name="username" class="form-control" placeholder="Enter username" required autofocus>
+                                <input type="text" name="username" class="form-control" placeholder="Admin username" required autofocus>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Password</label>
-                                <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+                                <input type="password" name="password" class="form-control" required>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100 py-2">Login to Dashboard</button>
+                            <button type="submit" class="btn btn-primary w-100">Login to Dashboard</button>
                         </form>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
 
 DASHBOARD_PAGE_HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Campus Hardware Inventory</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
@@ -115,7 +108,7 @@ DASHBOARD_PAGE_HTML = """
             <div class="col-md-4">
                 <div class="card bg-primary text-white shadow">
                     <div class="card-body text-center">
-                        <h5>Total Borrow Logs</h5>
+                        <h5>Total Borrowed</h5>
                         <h2>{{ records | length }}</h2>
                     </div>
                 </div>
@@ -123,7 +116,7 @@ DASHBOARD_PAGE_HTML = """
             <div class="col-md-4">
                 <div class="card bg-warning text-dark shadow">
                     <div class="card-body text-center">
-                        <h5>Currently Out (Pending)</h5>
+                        <h5>Currently Out (Pending Return)</h5>
                         <h2>{{ records | selectattr('status', 'equalto', 'Borrowed') | list | length }}</h2>
                     </div>
                 </div>
@@ -238,6 +231,37 @@ DASHBOARD_PAGE_HTML = """
 </body>
 </html>
 """
+
+def send_otp_email_resend(to_email, otp_code, purpose="verification"):
+    timestamp = get_current_timestamp()
+    subject = f"Your {purpose.title()} OTP Code - Campus Hardware Inventory"
+    body = (
+        f"Hello,\n\n"
+        f"Your One-Time Password (OTP) for {purpose} is: {otp_code}\n"
+        f"Requested at: {timestamp}\n\n"
+        f"This code is valid for 10 minutes.\n\n"
+        f"Best regards,\nCampus Hardware Inventory Team"
+    )
+
+    if RESEND_API_KEY:
+        try:
+            url = "https://api.resend.com/emails"
+            headers = {
+                "Authorization": f"Bearer {RESEND_API_KEY.strip()}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "from": "Campus Hardware Inventory <onboarding@resend.dev>",
+                "to": [to_email],
+                "subject": subject,
+                "text": body
+            }
+            requests.post(url, json=payload, headers=headers, timeout=10)
+        except Exception as e:
+            print(f"ERROR: Resend API request failed: {e}")
+
+    print(f"\n[{timestamp}] === {purpose.upper()} OTP FOR [{to_email}]: {otp_code} ===\n")
+    return True
 
 @app.route('/')
 def index():
