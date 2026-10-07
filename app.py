@@ -1,6 +1,4 @@
 import os
-import random
-import requests
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, session, render_template_string
 
@@ -9,13 +7,13 @@ app = Flask(__name__)
 # Security Configs
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-12345')
 
-# Mail Configurations (Resend API)
-RESEND_API_KEY = os.getenv('RESEND_API_KEY')
-
-# In-Memory Database for Borrowing Logs
+# In-Memory Database
+HARDWARE_INVENTORY = [
+    {'id': 1, 'name': 'Arduino Uno', 'category': 'Microcontroller', 'quantity': 10},
+    {'id': 2, 'name': 'LCD Display 16x2', 'category': 'Display', 'quantity': 5}
+]
 BORROW_RECORDS = []
 
-# Helper function para sa formatted timestamp
 def get_current_timestamp():
     return datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
 
@@ -24,14 +22,15 @@ def get_current_timestamp():
 NAVBAR_HTML = """
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
     <div class="container">
-        <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">Campus Hardware Inventory (Admin)</a>
+        <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">Campus Hardware Inventory</a>
         <div class="d-flex align-items-center">
             {% if session.get('logged_in') %}
-                <span class="text-light me-3 small">Logged in as: <strong class="text-warning">{{ session.get('user', 'Admin') }}</strong></span>
+                <span class="text-light me-3 small">User: 
+                    <strong class="text-warning">{{ session.get('user', 'User') }} ({{ session.get('role', 'User') }})</strong>
+                </span>
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
             {% else %}
                 <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm me-2">Login</a>
-                <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Register</a>
             {% endif %}
         </div>
     </div>
@@ -40,8 +39,10 @@ NAVBAR_HTML = """
 
 LOGIN_PAGE_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Campus Hardware Inventory</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
@@ -51,42 +52,55 @@ LOGIN_PAGE_HTML = """
         <div class="row justify-content-center">
             <div class="col-md-5">
                 <div class="card shadow">
-                    <div class="card-header bg-primary text-white text-center">
-                        <h4>Admin Login</h4>
+                    <div class="card-header bg-primary text-white text-center py-3">
+                        <h4 class="mb-0">System Login</h4>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
                         {% with messages = get_flashed_messages(with_categories=true) %}
                           {% if messages %}
                             {% for category, message in messages %}
-                              <div class="alert alert-{{ category }}">{{ message }}</div>
+                              <div class="alert alert-{{ category }} alert-dismissible fade show">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                              </div>
                             {% endfor %}
                           {% endif %}
                         {% endwith %}
                         <form action="{{ url_for('login') }}" method="POST">
                             <div class="mb-3">
-                                <label class="form-label">Username or Email</label>
-                                <input type="text" name="username" class="form-control" placeholder="Admin username" required autofocus>
+                                <label class="form-label">Username / Name</label>
+                                <input type="text" name="username" class="form-control" placeholder="Enter username" required autofocus>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Select Role</label>
+                                <select name="role" class="form-select">
+                                    <option value="Admin">Admin (Add Components & Approve)</option>
+                                    <option value="User">Student / Borrower</option>
+                                </select>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Password</label>
-                                <input type="password" name="password" class="form-control" required>
+                                <input type="password" name="password" class="form-control" placeholder="Enter password" required>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100">Login to Dashboard</button>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Login to Dashboard</button>
                         </form>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
 
 DASHBOARD_PAGE_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Admin Dashboard - Campus Hardware Inventory</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Campus Hardware Inventory</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
@@ -103,79 +117,109 @@ DASHBOARD_PAGE_HTML = """
           {% endif %}
         {% endwith %}
 
-        <!-- Quick Summary Cards -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card bg-primary text-white shadow">
-                    <div class="card-body text-center">
-                        <h5>Total Borrowed</h5>
-                        <h2>{{ records | length }}</h2>
-                    </div>
-                </div>
+        <!-- ADMIN ONLY: Add Component Form -->
+        {% if session.get('role') == 'Admin' %}
+        <div class="card shadow border-primary mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">➕ Admin: Add New Hardware Component</h5>
             </div>
-            <div class="col-md-4">
-                <div class="card bg-warning text-dark shadow">
-                    <div class="card-body text-center">
-                        <h5>Currently Out (Pending Return)</h5>
-                        <h2>{{ records | selectattr('status', 'equalto', 'Borrowed') | list | length }}</h2>
+            <div class="card-body">
+                <form action="{{ url_for('add_component') }}" method="POST" class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label fw-bold">Component / Item Name</label>
+                        <input type="text" name="name" class="form-control" placeholder="e.g. Raspberry Pi 4, Servo Motor" required>
                     </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card bg-success text-white shadow">
-                    <div class="card-body text-center">
-                        <h5>Returned Items</h5>
-                        <h2>{{ records | selectattr('status', 'equalto', 'Returned') | list | length }}</h2>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Category</label>
+                        <input type="text" name="category" class="form-control" placeholder="e.g. Sensors, Microcontrollers" required>
                     </div>
-                </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Quantity Stock</label>
+                        <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+                    </div>
+                    <div class="col-12 text-end">
+                        <button type="submit" class="btn btn-success fw-bold">Save New Component</button>
+                    </div>
+                </form>
             </div>
         </div>
+        {% endif %}
 
         <div class="row">
-            <!-- Form: Record New Borrow Out -->
-            <div class="col-md-4 mb-4">
+            <!-- Available Components Table -->
+            <div class="col-md-5 mb-4">
                 <div class="card shadow">
                     <div class="card-header bg-dark text-white">
-                        <h5 class="mb-0">Record Item Borrowed (Out)</h5>
+                        <h5 class="mb-0">📦 Hardware Inventory Stock</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Category</th>
+                                    <th>Stock</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in inventory %}
+                                <tr>
+                                    <td><strong>{{ item.name }}</strong></td>
+                                    <td><span class="badge bg-secondary">{{ item.category }}</span></td>
+                                    <td><span class="badge bg-info text-dark">{{ item.quantity }} pcs</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Borrow Request Form -->
+                <div class="card shadow mt-4">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">📋 Submit Borrow Request</h5>
                     </div>
                     <div class="card-body">
                         <form action="{{ url_for('borrow_item') }}" method="POST">
                             <div class="mb-3">
-                                <label class="form-label">Borrower Name / Student</label>
-                                <input type="text" name="borrower" class="form-control" placeholder="e.g. Juan Cruz" required>
+                                <label class="form-label">Borrower Name</label>
+                                <input type="text" name="borrower" class="form-control" value="{{ session.get('user', '') }}" required>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Hardware Item</label>
-                                <input type="text" name="item_name" class="form-control" placeholder="e.g. Arduino, Projector" required>
+                                <label class="form-label">Select Hardware</label>
+                                <select name="item_name" class="form-select" required>
+                                    {% for item in inventory %}
+                                        <option value="{{ item.name }}">{{ item.name }} (Available: {{ item.quantity }})</option>
+                                    {% endfor %}
+                                </select>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Quantity</label>
                                 <input type="number" name="quantity" class="form-control" value="1" min="1" required>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100">Log Borrowed (Out)</button>
+                            <button type="submit" class="btn btn-primary w-100 fw-bold">Submit Request</button>
                         </form>
                     </div>
                 </div>
             </div>
 
-            <!-- Table: Admin Borrowing & Return Management -->
-            <div class="col-md-8">
+            <!-- Monitoring Logs Table -->
+            <div class="col-md-7">
                 <div class="card shadow">
                     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Borrow, Out & Return Monitoring</h5>
-                        <span class="badge bg-warning text-dark">Admin Live View</span>
+                        <h5 class="mb-0">🔄 Borrowing & Approval Logs</h5>
+                        {% if session.get('role') == 'Admin' %}
+                            <span class="badge bg-warning text-dark">Admin Approval Mode</span>
+                        {% endif %}
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-striped table-hover mb-0 align-middle">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>#</th>
                                         <th>Borrower</th>
-                                        <th>Item Name</th>
+                                        <th>Item</th>
                                         <th>Qty</th>
-                                        <th>Out Timestamp</th>
-                                        <th>Return Timestamp</th>
                                         <th>Status</th>
                                         <th>Action</th>
                                     </tr>
@@ -184,39 +228,48 @@ DASHBOARD_PAGE_HTML = """
                                     {% if records %}
                                         {% for rec in records %}
                                         <tr>
-                                            <td>{{ rec.id }}</td>
                                             <td><strong>{{ rec.borrower }}</strong></td>
                                             <td>{{ rec.item_name }}</td>
                                             <td>{{ rec.quantity }}</td>
-                                            <td><small class="text-primary fw-bold">{{ rec.borrow_timestamp }}</small></td>
                                             <td>
-                                                {% if rec.return_timestamp %}
-                                                    <small class="text-success fw-bold">{{ rec.return_timestamp }}</small>
+                                                {% if rec.status == 'Pending Approval' %}
+                                                    <span class="badge bg-warning text-dark">Pending</span>
+                                                {% elif rec.status == 'Approved / Out' %}
+                                                    <span class="badge bg-danger">Approved (Out)</span>
                                                 {% else %}
-                                                    <span class="badge bg-secondary">Out (Pending)</span>
+                                                    <span class="badge bg-success">Returned</span>
                                                 {% endif %}
                                             </td>
                                             <td>
-                                                {% if rec.status == 'Borrowed' %}
-                                                    <span class="badge bg-danger">OUT</span>
+                                                {% if session.get('role') == 'Admin' %}
+                                                    {% if rec.status == 'Pending Approval' %}
+                                                        <form action="{{ url_for('approve_item', record_id=rec.id) }}" method="POST">
+                                                            <button type="submit" class="btn btn-sm btn-primary fw-bold">Approve</button>
+                                                        </form>
+                                                    {% elif rec.status == 'Approved / Out' %}
+                                                        <form action="{{ url_for('return_item', record_id=rec.id) }}" method="POST">
+                                                            <button type="submit" class="btn btn-sm btn-success fw-bold">Mark Returned</button>
+                                                        </form>
+                                                    {% else %}
+                                                        <button class="btn btn-sm btn-outline-secondary" disabled>Done</button>
+                                                    {% endif %}
                                                 {% else %}
-                                                    <span class="badge bg-success">RETURNED</span>
-                                                {% endif %}
-                                            </td>
-                                            <td>
-                                                {% if rec.status == 'Borrowed' %}
-                                                    <form action="{{ url_for('return_item', record_id=rec.id) }}" method="POST">
-                                                        <button type="submit" class="btn btn-sm btn-success">Mark Returned</button>
-                                                    </form>
-                                                {% else %}
-                                                    <button class="btn btn-sm btn-outline-secondary" disabled>Done</button>
+                                                    {% if rec.status == 'Pending Approval' %}
+                                                        <span class="badge bg-secondary">Awaiting Admin</span>
+                                                    {% elif rec.status == 'Approved / Out' %}
+                                                        <form action="{{ url_for('return_item', record_id=rec.id) }}" method="POST">
+                                                            <button type="submit" class="btn btn-sm btn-outline-success">Return Item</button>
+                                                        </form>
+                                                    {% else %}
+                                                        <span class="badge bg-outline-success">Completed</span>
+                                                    {% endif %}
                                                 {% endif %}
                                             </td>
                                         </tr>
                                         {% endfor %}
                                     {% else %}
                                         <tr>
-                                            <td colspan="8" class="text-center text-muted py-4">No borrow or return records yet.</td>
+                                            <td colspan="5" class="text-center text-muted py-4">No borrowing transactions yet.</td>
                                         </tr>
                                     {% endif %}
                                 </tbody>
@@ -232,37 +285,6 @@ DASHBOARD_PAGE_HTML = """
 </html>
 """
 
-def send_otp_email_resend(to_email, otp_code, purpose="verification"):
-    timestamp = get_current_timestamp()
-    subject = f"Your {purpose.title()} OTP Code - Campus Hardware Inventory"
-    body = (
-        f"Hello,\n\n"
-        f"Your One-Time Password (OTP) for {purpose} is: {otp_code}\n"
-        f"Requested at: {timestamp}\n\n"
-        f"This code is valid for 10 minutes.\n\n"
-        f"Best regards,\nCampus Hardware Inventory Team"
-    )
-
-    if RESEND_API_KEY:
-        try:
-            url = "https://api.resend.com/emails"
-            headers = {
-                "Authorization": f"Bearer {RESEND_API_KEY.strip()}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "from": "Campus Hardware Inventory <onboarding@resend.dev>",
-                "to": [to_email],
-                "subject": subject,
-                "text": body
-            }
-            requests.post(url, json=payload, headers=headers, timeout=10)
-        except Exception as e:
-            print(f"ERROR: Resend API request failed: {e}")
-
-    print(f"\n[{timestamp}] === {purpose.upper()} OTP FOR [{to_email}]: {otp_code} ===\n")
-    return True
-
 @app.route('/')
 def index():
     return redirect(url_for('login'))
@@ -271,28 +293,46 @@ def index():
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
+        role = request.form.get('role', 'User')
+        
         session['logged_in'] = True
-        session['user'] = username if username else 'Admin'
+        session['user'] = username if username else 'User'
+        session['role'] = role
         session['login_timestamp'] = get_current_timestamp()
         
-        flash('Logged in successfully as Admin!', 'success')
+        flash(f'Logged in successfully as {role}!', 'success')
         return redirect(url_for('dashboard'))
 
-    try:
-        return render_template('login.html')
-    except Exception:
-        return render_template_string(LOGIN_PAGE_HTML)
+    return render_template_string(LOGIN_PAGE_HTML)
 
 @app.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
-        flash('Please login first to access admin dashboard.', 'warning')
+        flash('Please login first.', 'warning')
         return redirect(url_for('login'))
 
-    try:
-        return render_template('dashboard.html', records=BORROW_RECORDS)
-    except Exception:
-        return render_template_string(DASHBOARD_PAGE_HTML, records=BORROW_RECORDS)
+    return render_template_string(DASHBOARD_PAGE_HTML, records=BORROW_RECORDS, inventory=HARDWARE_INVENTORY)
+
+@app.route('/add_component', methods=['POST'])
+def add_component():
+    if not session.get('logged_in') or session.get('role') != 'Admin':
+        flash('Only Admin can add hardware components.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    name = request.form.get('name')
+    category = request.form.get('category')
+    quantity = int(request.form.get('quantity', 1))
+
+    new_item = {
+        'id': len(HARDWARE_INVENTORY) + 1,
+        'name': name,
+        'category': category,
+        'quantity': quantity
+    }
+    HARDWARE_INVENTORY.append(new_item)
+
+    flash(f"Component '{name}' added successfully to inventory!", 'success')
+    return redirect(url_for('dashboard'))
 
 @app.route('/borrow', methods=['POST'])
 def borrow_item():
@@ -303,20 +343,37 @@ def borrow_item():
     borrower = request.form.get('borrower')
     item_name = request.form.get('item_name')
     quantity = request.form.get('quantity', 1)
-    borrow_time = get_current_timestamp()
+    req_time = get_current_timestamp()
 
     record = {
         'id': len(BORROW_RECORDS) + 1,
-        'borrower': borrower if borrower else session.get('user', 'Admin'),
+        'borrower': borrower if borrower else session.get('user', 'User'),
         'item_name': item_name,
         'quantity': quantity,
-        'borrow_timestamp': borrow_time,
+        'request_timestamp': req_time,
+        'approved_timestamp': None,
         'return_timestamp': None,
-        'status': 'Borrowed'
+        'status': 'Pending Approval'
     }
     BORROW_RECORDS.append(record)
 
-    flash(f"Item '{item_name}' marked as OUT at {borrow_time}!", 'success')
+    flash(f"Borrow request for '{item_name}' submitted! Waiting for Admin Approval.", 'info')
+    return redirect(url_for('dashboard'))
+
+@app.route('/approve/<int:record_id>', methods=['POST'])
+def approve_item(record_id):
+    if not session.get('logged_in') or session.get('role') != 'Admin':
+        flash('Only Admins can approve borrow requests.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    approved_time = get_current_timestamp()
+    for rec in BORROW_RECORDS:
+        if rec['id'] == record_id:
+            rec['approved_timestamp'] = approved_time
+            rec['status'] = 'Approved / Out'
+            flash(f"Request #{record_id} ('{rec['item_name']}') APPROVED!", 'success')
+            break
+
     return redirect(url_for('dashboard'))
 
 @app.route('/return/<int:record_id>', methods=['POST'])
@@ -330,7 +387,7 @@ def return_item(record_id):
         if rec['id'] == record_id:
             rec['return_timestamp'] = return_time
             rec['status'] = 'Returned'
-            flash(f"Item '{rec['item_name']}' returned successfully at {return_time}!", 'success')
+            flash(f"Item '{rec['item_name']}' returned successfully!", 'success')
             break
 
     return redirect(url_for('dashboard'))
