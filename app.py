@@ -11,6 +11,18 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-fallback-secret-key-
 # Mail Configurations (Resend API)
 RESEND_API_KEY = os.getenv('RESEND_API_KEY')
 
+# --- In-Memory Database for Components and Borrow Requests ---
+COMPONENTS = [
+    {"id": 1, "name": "Arduino Uno", "category": "Microcontroller", "quantity": 10},
+    {"id": 2, "name": "Breadboard", "category": "Accessories", "quantity": 25},
+    {"id": 3, "name": "Digital Multimeter", "category": "Tools", "quantity": 5},
+    {"id": 4, "name": "ESP32 Wi-Fi Module", "category": "Microcontroller", "quantity": 15}
+]
+
+BORROW_REQUESTS = [
+    # Halimbawa: {"id": 1, "username": "student1", "component_id": 1, "component_name": "Arduino Uno", "quantity": 2, "status": "Pending"}
+]
+
 # --- Fallback HTML UI Templates ---
 
 LOGIN_PAGE_HTML = """
@@ -38,12 +50,19 @@ LOGIN_PAGE_HTML = """
                         {% endwith %}
                         <form action="{{ url_for('login') }}" method="POST">
                             <div class="mb-3">
-                                <label class="form-label">Username or Email</label>
+                                <label class="form-label">Username</label>
                                 <input type="text" name="username" class="form-control" required autofocus>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Password</label>
                                 <input type="password" name="password" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Role</label>
+                                <select name="role" class="form-select">
+                                    <option value="Student">Student</option>
+                                    <option value="Admin">Admin</option>
+                                </select>
                             </div>
                             <button type="submit" class="btn btn-primary w-100">Login</button>
                         </form>
@@ -159,15 +178,201 @@ DASHBOARD_PAGE_HTML = """
     <nav class="navbar navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="#">Campus Hardware Inventory System</a>
-            <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm">Logout</a>
+            <div>
+                <span class="text-white me-3">User: {{ session.get('logged_user', 'User') }} ({{ session.get('role', 'Student') }})</span>
+                <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-sm">Logout</a>
+            </div>
         </div>
     </nav>
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <div class="row">
+            <!-- Admin Controls -->
+            {% if session.get('role') == 'Admin' %}
+            <div class="col-md-4 mb-4">
+                <div class="card shadow">
+                    <div class="card-header bg-dark text-white"><h5>Admin: Add Component</h5></div>
+                    <div class="card-body">
+                        <form action="{{ url_for('add_component') }}" method="POST">
+                            <div class="mb-2">
+                                <label class="form-label">Component Name</label>
+                                <input type="text" name="name" class="form-control" required>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Category</label>
+                                <input type="text" name="category" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Quantity</label>
+                                <input type="number" name="quantity" class="form-control" min="1" required>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100">Add to Inventory</button>
+                        </form>
+                        <hr>
+                        <a href="{{ url_for('admin_requests') }}" class="btn btn-warning w-100">Review Borrow Requests</a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Inventory / Borrow Section -->
+            <div class="{% if session.get('role') == 'Admin' %}col-md-8{% else %}col-md-12{% endif %}">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white"><h5>Available Hardware Components</h5></div>
+                    <div class="card-body">
+                        <table class="table table-bordered table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>Available Qty</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for comp in components %}
+                                <tr>
+                                    <td>{{ comp.id }}</td>
+                                    <td>{{ comp.name }}</td>
+                                    <td>{{ comp.category }}</td>
+                                    <td>{{ comp.quantity }}</td>
+                                    <td>
+                                        {% if comp.quantity > 0 %}
+                                        <form action="{{ url_for('borrow_component', comp_id=comp.id) }}" method="POST" class="d-inline-flex">
+                                            <input type="number" name="qty" value="1" min="1" max="{{ comp.quantity }}" class="form-control form-control-sm me-1" style="width: 70px;" required>
+                                            <button type="submit" class="btn btn-primary btn-sm">Borrow</button>
+                                        </form>
+                                        {% else %}
+                                        <span class="text-danger">Out of Stock</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- My Requests & Returns Section -->
+                <div class="card shadow mt-4">
+                    <div class="card-header bg-secondary text-white"><h5>My Borrowed Items & Requests</h5></div>
+                    <div class="card-body">
+                        <table class="table table-sm table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Quantity</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for req in my_requests %}
+                                <tr>
+                                    <td>{{ req.component_name }}</td>
+                                    <td>{{ req.quantity }}</td>
+                                    <td>
+                                        {% if req.status == 'Pending' %}
+                                            <span class="badge bg-warning text-dark">Pending Approval</span>
+                                        {% elif req.status == 'Approved' %}
+                                            <span class="badge bg-success">Approved / Borrowed</span>
+                                        {% elif req.status == 'Returned' %}
+                                            <span class="badge bg-secondary">Returned</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Rejected</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if req.status == 'Approved' %}
+                                        <form action="{{ url_for('return_component', req_id=req.id) }}" method="POST">
+                                            <button type="submit" class="btn btn-sm btn-outline-dark">Return Item</button>
+                                        </form>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted">No requests found.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+ADMIN_REQUESTS_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manage Requests - Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
     <div class="container mt-5">
         <div class="card shadow">
-            <div class="card-body text-center p-5">
-                <h1 class="text-success mb-3">Welcome to Dashboard!</h1>
-                <p class="lead">Account setup and authentication complete.</p>
-                <a href="{{ url_for('register') }}" class="btn btn-primary">Go back to Register Page</a>
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h4>Admin Panel - User Borrow Requests</h4>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-light btn-sm">Back to Dashboard</a>
+            </div>
+            <div class="card-body">
+                <table class="table table-striped table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>User</th>
+                            <th>Component</th>
+                            <th>Quantity</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for req in all_requests %}
+                        <tr>
+                            <td>{{ req.id }}</td>
+                            <td>{{ req.username }}</td>
+                            <td>{{ req.component_name }}</td>
+                            <td>{{ req.quantity }}</td>
+                            <td>
+                                {% if req.status == 'Pending' %}
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                {% else %}
+                                    <span class="badge bg-success">{{ req.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if req.status == 'Pending' %}
+                                <a href="{{ url_for('approve_request', req_id=req.id) }}" class="btn btn-success btn-sm">Approve</a>
+                                <a href="{{ url_for('reject_request', req_id=req.id) }}" class="btn btn-danger btn-sm">Reject</a>
+                                {% else %}
+                                    Already {{ req.status }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No pending borrow requests.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -313,6 +518,10 @@ def verify_otp_reset_password():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        username = request.form.get('username')
+        role = request.form.get('role', 'Student')
+        session['logged_user'] = username
+        session['role'] = role
         flash('Logged in successfully!', 'success')
         return redirect(url_for('dashboard'))
 
@@ -323,10 +532,104 @@ def login():
 
 @app.route('/dashboard')
 def dashboard():
+    username = session.get('logged_user', 'Guest')
+    my_requests = [r for r in BORROW_REQUESTS if r['username'] == username]
     try:
-        return render_template('dashboard.html')
+        return render_template('dashboard.html', components=COMPONENTS, my_requests=my_requests)
     except Exception:
-        return render_template_string(DASHBOARD_PAGE_HTML)
+        return render_template_string(DASHBOARD_PAGE_HTML, components=COMPONENTS, my_requests=my_requests)
+
+# --- NEW FEATURES: Add Component, Borrow, Return, Admin Approve ---
+
+@app.route('/component/add', methods=['POST'])
+def add_component():
+    if session.get('role') != 'Admin':
+        flash('Access denied. Admins only.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    name = request.form.get('name')
+    category = request.form.get('category')
+    quantity = int(request.form.get('quantity', 1))
+
+    new_id = len(COMPONENTS) + 1
+    COMPONENTS.append({"id": new_id, "name": name, "category": category, "quantity": quantity})
+    flash('Component added successfully!', 'success')
+    return redirect(url_for('dashboard'))
+
+@app.route('/borrow/<int:comp_id>', methods=['POST'])
+def borrow_component(comp_id):
+    username = session.get('logged_user', 'Guest')
+    qty = int(request.form.get('qty', 1))
+
+    component = next((c for c in COMPONENTS if c['id'] == comp_id), None)
+    if component and component['quantity'] >= qty:
+        # Bawas muna ang stock o hintayin ang approval? Ibabawas natin kapag na-approve na ng admin, o i-pending muna.
+        req_id = len(BORROW_REQUESTS) + 1
+        BORROW_REQUESTS.append({
+            "id": req_id,
+            "username": username,
+            "component_id": comp_id,
+            "component_name": component['name'],
+            "quantity": qty,
+            "status": "Pending"
+        })
+        flash('Borrow request submitted! Waiting for Admin approval.', 'info')
+    else:
+        flash('Requested quantity exceeds available stock.', 'danger')
+    return redirect(url_for('dashboard'))
+
+@app.route('/return/<int:req_id>', methods=['POST'])
+def return_component(req_id):
+    req = next((r for r in BORROW_REQUESTS if r['id'] == req_id), None)
+    if req and req['status'] == 'Approved':
+        req['status'] = 'Returned'
+        # Ibalik ang quantity sa components
+        component = next((c for c in COMPONENTS if c['id'] == req['component_id']), None)
+        if component:
+            component['quantity'] += req['quantity']
+        flash('Item successfully returned to inventory.', 'success')
+    else:
+        flash('Invalid action.', 'danger')
+    return redirect(url_for('dashboard'))
+
+@app.route('/admin/requests')
+def admin_requests():
+    if session.get('role') != 'Admin':
+        flash('Access denied.', 'danger')
+        return redirect(url_for('dashboard'))
+    try:
+        return render_template('admin_requests.html', all_requests=BORROW_REQUESTS)
+    except Exception:
+        return render_template_string(ADMIN_REQUESTS_HTML, all_requests=BORROW_REQUESTS)
+
+@app.route('/admin/approve/<int:req_id>')
+def approve_request(req_id):
+    if session.get('role') != 'Admin':
+        flash('Access denied.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    req = next((r for r in BORROW_REQUESTS if r['id'] == req_id), None)
+    if req and req['status'] == 'Pending':
+        component = next((c for c in COMPONENTS if c['id'] == req['component_id']), None)
+        if component and component['quantity'] >= req['quantity']:
+            component['quantity'] -= req['quantity']
+            req['status'] = 'Approved'
+            flash(f"Request #{req_id} approved successfully!", 'success')
+        else:
+            flash("Not enough stock to approve this request.", 'danger')
+    return redirect(url_for('admin_requests'))
+
+@app.route('/admin/reject/<int:req_id>')
+def reject_request(req_id):
+    if session.get('role') != 'Admin':
+        flash('Access denied.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    req = next((r for r in BORROW_REQUESTS if r['id'] == req_id), None)
+    if req and req['status'] == 'Pending':
+        req['status'] = 'Rejected'
+        flash(f"Request #{req_id} rejected.", 'warning')
+    return redirect(url_for('admin_requests'))
 
 if __name__ == '__main__':
     app.run(debug=True)
