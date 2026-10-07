@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, session, render_template_string
+from flask import Flask, request, redirect, url_for, flash, session, render_template_string
 
 app = Flask(__name__)
 
@@ -17,7 +17,7 @@ BORROW_RECORDS = []
 def get_current_timestamp():
     return datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
 
-# --- Fallback HTML UI Templates ---
+# --- HTML UI Templates ---
 
 NAVBAR_HTML = """
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
@@ -68,21 +68,21 @@ LOGIN_PAGE_HTML = """
                         {% endwith %}
                         <form action="{{ url_for('login') }}" method="POST">
                             <div class="mb-3">
-                                <label class="form-label">Username / Name</label>
+                                <label class="form-label fw-bold">Username / Name</label>
                                 <input type="text" name="username" class="form-control" placeholder="Enter username" required autofocus>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Select Role</label>
+                                <label class="form-label fw-bold">Select Role</label>
                                 <select name="role" class="form-select">
-                                    <option value="Admin">Admin (Add Components & Approve)</option>
-                                    <option value="User">Student / Borrower</option>
+                                    <option value="User">Student / Borrower (Request Only)</option>
+                                    <option value="Admin">Admin (Add Items & Approve Only)</option>
                                 </select>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Password</label>
+                                <label class="form-label fw-bold">Password</label>
                                 <input type="password" name="password" class="form-control" placeholder="Enter password" required>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Login to Dashboard</button>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Login to System</button>
                         </form>
                     </div>
                 </div>
@@ -117,28 +117,28 @@ DASHBOARD_PAGE_HTML = """
           {% endif %}
         {% endwith %}
 
-        <!-- ADMIN ONLY: Add Component Form -->
+        <!-- STRICT ADMIN ONLY: Add Component Panel -->
         {% if session.get('role') == 'Admin' %}
         <div class="card shadow border-primary mb-4">
             <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">➕ Admin: Add New Hardware Component</h5>
+                <h5 class="mb-0">➕ Admin Control: Add New Hardware Component</h5>
             </div>
             <div class="card-body">
                 <form action="{{ url_for('add_component') }}" method="POST" class="row g-3">
                     <div class="col-md-5">
-                        <label class="form-label fw-bold">Component / Item Name</label>
-                        <input type="text" name="name" class="form-control" placeholder="e.g. Raspberry Pi 4, Servo Motor" required>
+                        <label class="form-label fw-bold">Component Name</label>
+                        <input type="text" name="name" class="form-control" placeholder="e.g. Raspberry Pi 4" required>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Category</label>
-                        <input type="text" name="category" class="form-control" placeholder="e.g. Sensors, Microcontrollers" required>
+                        <input type="text" name="category" class="form-control" placeholder="e.g. Microcontrollers" required>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Quantity Stock</label>
                         <input type="number" name="quantity" class="form-control" value="1" min="1" required>
                     </div>
                     <div class="col-12 text-end">
-                        <button type="submit" class="btn btn-success fw-bold">Save New Component</button>
+                        <button type="submit" class="btn btn-success fw-bold">Save Component</button>
                     </div>
                 </form>
             </div>
@@ -146,9 +146,9 @@ DASHBOARD_PAGE_HTML = """
         {% endif %}
 
         <div class="row">
-            <!-- Available Components Table -->
+            <!-- Hardware Inventory Stock -->
             <div class="col-md-5 mb-4">
-                <div class="card shadow">
+                <div class="card shadow mb-4">
                     <div class="card-header bg-dark text-white">
                         <h5 class="mb-0">📦 Hardware Inventory Stock</h5>
                     </div>
@@ -158,7 +158,7 @@ DASHBOARD_PAGE_HTML = """
                                 <tr>
                                     <th>Item</th>
                                     <th>Category</th>
-                                    <th>Stock</th>
+                                    <th>Available</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -174,10 +174,10 @@ DASHBOARD_PAGE_HTML = """
                     </div>
                 </div>
 
-                <!-- Borrow Request Form -->
-                <div class="card shadow mt-4">
+                <!-- Request Form (Available to Everyone) -->
+                <div class="card shadow">
                     <div class="card-header bg-secondary text-white">
-                        <h5 class="mb-0">📋 Submit Borrow Request</h5>
+                        <h5 class="mb-0">📋 Borrower Request Form</h5>
                     </div>
                     <div class="card-body">
                         <form action="{{ url_for('borrow_item') }}" method="POST">
@@ -189,7 +189,7 @@ DASHBOARD_PAGE_HTML = """
                                 <label class="form-label">Select Hardware</label>
                                 <select name="item_name" class="form-select" required>
                                     {% for item in inventory %}
-                                        <option value="{{ item.name }}">{{ item.name }} (Available: {{ item.quantity }})</option>
+                                        <option value="{{ item.name }}">{{ item.name }} (Stock: {{ item.quantity }})</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -197,7 +197,7 @@ DASHBOARD_PAGE_HTML = """
                                 <label class="form-label">Quantity</label>
                                 <input type="number" name="quantity" class="form-control" value="1" min="1" required>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100 fw-bold">Submit Request</button>
+                            <button type="submit" class="btn btn-primary w-100 fw-bold">Submit Borrow Request</button>
                         </form>
                     </div>
                 </div>
@@ -207,9 +207,11 @@ DASHBOARD_PAGE_HTML = """
             <div class="col-md-7">
                 <div class="card shadow">
                     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">🔄 Borrowing & Approval Logs</h5>
+                        <h5 class="mb-0">🔄 Request Status & Logs</h5>
                         {% if session.get('role') == 'Admin' %}
                             <span class="badge bg-warning text-dark">Admin Approval Mode</span>
+                        {% else %}
+                            <span class="badge bg-info text-dark">User View (Read-Only Status)</span>
                         {% endif %}
                     </div>
                     <div class="card-body p-0">
@@ -221,7 +223,7 @@ DASHBOARD_PAGE_HTML = """
                                         <th>Item</th>
                                         <th>Qty</th>
                                         <th>Status</th>
-                                        <th>Action</th>
+                                        <th>Action / Control</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -235,33 +237,33 @@ DASHBOARD_PAGE_HTML = """
                                                 {% if rec.status == 'Pending Approval' %}
                                                     <span class="badge bg-warning text-dark">Pending</span>
                                                 {% elif rec.status == 'Approved / Out' %}
-                                                    <span class="badge bg-danger">Approved (Out)</span>
+                                                    <span class="badge bg-danger">Approved / Out</span>
                                                 {% else %}
                                                     <span class="badge bg-success">Returned</span>
                                                 {% endif %}
                                             </td>
                                             <td>
                                                 {% if session.get('role') == 'Admin' %}
+                                                    <!-- ADMIN ONLY CONTROLS -->
                                                     {% if rec.status == 'Pending Approval' %}
                                                         <form action="{{ url_for('approve_item', record_id=rec.id) }}" method="POST">
-                                                            <button type="submit" class="btn btn-sm btn-primary fw-bold">Approve</button>
+                                                            <button type="submit" class="btn btn-sm btn-primary fw-bold">Approve Request</button>
                                                         </form>
                                                     {% elif rec.status == 'Approved / Out' %}
                                                         <form action="{{ url_for('return_item', record_id=rec.id) }}" method="POST">
                                                             <button type="submit" class="btn btn-sm btn-success fw-bold">Mark Returned</button>
                                                         </form>
                                                     {% else %}
-                                                        <button class="btn btn-sm btn-outline-secondary" disabled>Done</button>
+                                                        <span class="badge bg-secondary">Completed</span>
                                                     {% endif %}
                                                 {% else %}
+                                                    <!-- USER / BORROWER READ-ONLY STATUS -->
                                                     {% if rec.status == 'Pending Approval' %}
-                                                        <span class="badge bg-secondary">Awaiting Admin</span>
+                                                        <span class="badge bg-secondary">Awaiting Admin Approval</span>
                                                     {% elif rec.status == 'Approved / Out' %}
-                                                        <form action="{{ url_for('return_item', record_id=rec.id) }}" method="POST">
-                                                            <button type="submit" class="btn btn-sm btn-outline-success">Return Item</button>
-                                                        </form>
+                                                        <span class="badge bg-info text-dark">Item Borrowed (In Use)</span>
                                                     {% else %}
-                                                        <span class="badge bg-outline-success">Completed</span>
+                                                        <span class="badge bg-outline-success text-success">Item Returned</span>
                                                     {% endif %}
                                                 {% endif %}
                                             </td>
@@ -315,8 +317,9 @@ def dashboard():
 
 @app.route('/add_component', methods=['POST'])
 def add_component():
+    # BACKEND ROLE CHECK: Bawal mag-add ang hindi Admin
     if not session.get('logged_in') or session.get('role') != 'Admin':
-        flash('Only Admin can add hardware components.', 'danger')
+        flash('Permission Denied: Only Admin can add hardware components.', 'danger')
         return redirect(url_for('dashboard'))
 
     name = request.form.get('name')
@@ -362,8 +365,9 @@ def borrow_item():
 
 @app.route('/approve/<int:record_id>', methods=['POST'])
 def approve_item(record_id):
+    # BACKEND ROLE CHECK: Bawal mag-approve ang Borrower/User
     if not session.get('logged_in') or session.get('role') != 'Admin':
-        flash('Only Admins can approve borrow requests.', 'danger')
+        flash('Permission Denied: Only Admin can approve borrow requests.', 'danger')
         return redirect(url_for('dashboard'))
 
     approved_time = get_current_timestamp()
@@ -378,16 +382,17 @@ def approve_item(record_id):
 
 @app.route('/return/<int:record_id>', methods=['POST'])
 def return_item(record_id):
-    if not session.get('logged_in'):
-        flash('Please login first.', 'warning')
-        return redirect(url_for('login'))
+    # BACKEND ROLE CHECK: Admin lang ang puwedeng mag-mark bilang Returned
+    if not session.get('logged_in') or session.get('role') != 'Admin':
+        flash('Permission Denied: Only Admin can confirm returned items.', 'danger')
+        return redirect(url_for('dashboard'))
 
     return_time = get_current_timestamp()
     for rec in BORROW_RECORDS:
         if rec['id'] == record_id:
             rec['return_timestamp'] = return_time
             rec['status'] = 'Returned'
-            flash(f"Item '{rec['item_name']}' returned successfully!", 'success')
+            flash(f"Item '{rec['item_name']}' confirmed as returned!", 'success')
             break
 
     return redirect(url_for('dashboard'))
